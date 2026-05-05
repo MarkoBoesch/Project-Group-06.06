@@ -327,32 +327,24 @@ if page == "🏠 Enter Ingredients":
                         st.success(f"'{name}' added to your cooking history!")
                         st.rerun()
 
-    # ------------------------------------------------------------------
-    # ML RECOMMENDATIONS
-    # ------------------------------------------------------------------
-    st.divider()
-    st.subheader("🤖 Recommendations for you")
 
-    history = load_history()
-    all_recipes = load_all_recipes()
-
-    if len(history) == 0:
-        st.info("No recommendations yet - cook your first recipe!")
-    else:
-        recommendations = calculate_recommendations(history, all_recipes, num_recommendations=3)
-        for recipe in recommendations:
-            st.write(f"👉 {recipe['name']} — {recipe['time_minutes']} min")
 
 
 # -----------------------------------------------------------------------------
-# PAGE 2: HISTORY
+# PAGE 2: HISTORY AND RECOMMENDATIONS
 # -----------------------------------------------------------------------------
 
 elif page == "📜 History":
 
-    st.header("Your Cooking History")
+    st.header("📜 History and Recommendations")
 
     history = load_history()
+    all_recipes = load_all_recipes()
+
+    # ------------------------------------------------------------------
+    # COOKING HISTORY
+    # ------------------------------------------------------------------
+    st.subheader("Your Cooking History")
 
     if len(history) == 0:
         st.info("You haven't cooked any recipes yet. Go to the home page and find your first recipe!")
@@ -381,21 +373,79 @@ elif page == "📜 History":
                             update_rating(entry["id"], rating)
                             st.rerun()
 
-        st.divider()
-        st.subheader("🤖 Based on your history")
-        st.caption("These recommendations are calculated using machine learning.")
+    # ------------------------------------------------------------------
+    # ML RECOMMENDATIONS
+    # ------------------------------------------------------------------
+    st.divider()
+    st.subheader("🤖 Recommended for You")
+    st.caption("Personalised suggestions calculated with machine learning based on your cooking history.")
 
-        all_recipes = load_all_recipes()
+    if len(history) == 0:
+        st.info("Cook your first recipe to unlock personalised recommendations!")
+    else:
         recommendations = calculate_recommendations(history, all_recipes, num_recommendations=5)
 
-        for recipe in recommendations:
-            col_a, col_b, col_c = st.columns([3, 1, 1])
-            with col_a:
-                st.write(f"👉 {recipe['name']}")
-            with col_b:
-                st.write(f"⏱️ {recipe['time_minutes']} min")
-            with col_c:
-                st.write(f"📊 {recipe['difficulty']}")
+        if not recommendations:
+            st.info("No recommendations available yet.")
+        else:
+            for rec in recommendations:
+                rec_name = rec["name"]
+
+                with st.expander(f"🍽️ {rec_name} — {rec['time_minutes']} min · {rec['difficulty']}"):
+
+                    col_a, col_b, col_c = st.columns(3)
+                    with col_a:
+                        st.metric("Cooking time", f"{rec['time_minutes']} min")
+                    with col_b:
+                        st.metric("Difficulty", rec["difficulty"])
+                    with col_c:
+                        st.metric("Calories", f"{rec['calories']} kcal")
+
+                    # Build amounts dict
+                    amounts_dict_rec = {}
+                    if rec.get("amounts"):
+                        for entry_amt in rec["amounts"].split(","):
+                            if ":" in entry_amt:
+                                parts = entry_amt.split(":", 1)
+                                amounts_dict_rec[parts[0].strip()] = parts[1].strip()
+
+                    # Split into 3 groups (no user ingredient context on history page,
+                    # so pantry items go grey, everything else orange)
+                    ingredient_keys_rec = [z.strip() for z in rec["ingredients"].split(",")]
+                    group_pantry_rec = []
+                    group_missing_rec = []
+
+                    for key in ingredient_keys_rec:
+                        if key in base_ingredients:
+                            group_pantry_rec.append(key)
+                        else:
+                            group_missing_rec.append(key)
+
+                    st.subheader("🛒 Ingredients for 2 portions")
+
+                    if group_pantry_rec:
+                        st.markdown("🏠 **Basic pantry items (assumed at home):**")
+                        for key in group_pantry_rec:
+                            display = ingredient_dictionary.get(key, key)
+                            amount = amounts_dict_rec.get(key, "as needed")
+                            st.markdown(f"<span style='color:#888888'>• **{display}** — {amount}</span>", unsafe_allow_html=True)
+
+                    if group_missing_rec:
+                        st.markdown("🛒 **Ingredients you will need:**")
+                        for key in group_missing_rec:
+                            display = ingredient_dictionary.get(key, key)
+                            amount = amounts_dict_rec.get(key, "as needed")
+                            st.markdown(f"<span style='color:#ff8800'>• **{display}** — {amount}</span>", unsafe_allow_html=True)
+
+                    st.divider()
+                    st.subheader("👨\u200d🍳 Instructions")
+                    st.write(rec["instructions"])
+
+                    if st.button("✅ Mark as Cooked", key=f"rec_cook_{rec['id']}"):
+                        today = datetime.date.today().strftime("%Y-%m-%d")
+                        save_history(rec["id"], today)
+                        st.success(f"'{rec_name}' added to your cooking history!")
+                        st.rerun()
 
 
 # -----------------------------------------------------------------------------
