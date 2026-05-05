@@ -89,8 +89,8 @@ st.divider()
 page = st.sidebar.radio(
     "Navigation",
     [
-        "🏠 Enter Ingredients",
-        "📜 History",
+        "🥕 Enter Ingredients",
+        "📖 History and Recommendations",
         "📊 Statistics",
     ]
 )
@@ -101,7 +101,7 @@ page = st.sidebar.radio(
 # diet/time/difficulty/allergen filters, and get matching recipes back.
 # -----------------------------------------------------------------------------
 
-if page == "🏠 Enter Ingredients":
+if page == "🥕 Enter Ingredients":
 
     st.header("What do you have at home?")
     st.write("Select the ingredients you want to use up.")
@@ -399,9 +399,9 @@ if page == "🏠 Enter Ingredients":
 # (cosine similarity on ingredient vectors).
 # -----------------------------------------------------------------------------
 
-elif page == "📜 History":
+elif page == "📖 History and Recommendations":
 
-    st.header("📜 History and Recommendations")
+    st.header("📖 History and Recommendations")
 
     history = load_history()
     all_recipes = load_all_recipes()
