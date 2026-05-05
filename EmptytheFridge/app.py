@@ -263,9 +263,7 @@ if page == "🏠 Enter Ingredients":
 
                     # Helper: translate ingredient key to readable name
                     def ingredient_name(key):
-                        if key in ingredient_dictionary:
-                            return ingredient_dictionary[key].get("en", key)
-                        return key
+                        return ingredient_dictionary.get(key, key)
 
                     # Build amounts dict from "key:amount,key:amount" string
                     amounts_dict = {}
