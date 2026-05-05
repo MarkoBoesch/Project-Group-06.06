@@ -1,0 +1,3 @@
+# This file contains all Python packages needed to run the EmptyTheFridge Streamlit app.
+# It tells Python which external libraries must be installed for the app to work correctly.
+# When the project is set up or deployed, the packages listed here are installed automatically, helping the app run without any problems.
