@@ -60,7 +60,7 @@ def calculate_costs(recipe):
 col_left, col_right = st.columns([4, 1])
 
 with col_left:
-    st.title("🧊 EmptyTheFridge")
+    st.title("👨‍🍳 EmptyTheFridge")
 
 st.divider()
 
