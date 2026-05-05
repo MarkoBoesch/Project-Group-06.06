@@ -16,7 +16,7 @@ from database import (
     update_rating
 )
 from recommender import calculate_recommendations, similar_recipes
-from recipes import base_ingredients, INGREDIENT_VALUE_CHF
+from recipes import base_ingredients, INGREDIENT_VALUE_CHF, NON_VEGAN_INGREDIENTS, NON_VEGETARIAN_INGREDIENTS
 from api_loader import load_api_recipes
 
 # -----------------------------------------------------------------------------
@@ -105,6 +105,52 @@ if page == "🏠 Enter Ingredients":
     # ------------------------------------------------------------------
     st.subheader("Filters")
 
+    # --- Diet filter (button-based) ---
+    if "diet_filter" not in st.session_state:
+        st.session_state.diet_filter = "All"
+
+    st.write("**Diet**")
+    diet_col1, diet_col2, diet_col3, diet_col4 = st.columns(4)
+
+    with diet_col1:
+        if st.button(
+            "✅ All" if st.session_state.diet_filter == "All" else "🍽️ All",
+            use_container_width=True,
+            type="primary" if st.session_state.diet_filter == "All" else "secondary"
+        ):
+            st.session_state.diet_filter = "All"
+            st.rerun()
+
+    with diet_col2:
+        if st.button(
+            "✅ With Meat" if st.session_state.diet_filter == "meat" else "🥩 With Meat",
+            use_container_width=True,
+            type="primary" if st.session_state.diet_filter == "meat" else "secondary"
+        ):
+            st.session_state.diet_filter = "meat"
+            st.rerun()
+
+    with diet_col3:
+        if st.button(
+            "✅ Vegetarian" if st.session_state.diet_filter == "vegetarian" else "🥗 Vegetarian",
+            use_container_width=True,
+            type="primary" if st.session_state.diet_filter == "vegetarian" else "secondary"
+        ):
+            st.session_state.diet_filter = "vegetarian"
+            st.rerun()
+
+    with diet_col4:
+        if st.button(
+            "✅ Vegan" if st.session_state.diet_filter == "vegan" else "🌱 Vegan",
+            use_container_width=True,
+            type="primary" if st.session_state.diet_filter == "vegan" else "secondary"
+        ):
+            st.session_state.diet_filter = "vegan"
+            st.rerun()
+
+    st.write("")  # spacing
+
+    # --- Other filters ---
     col1, col2, col3 = st.columns(3)
 
     with col1:
@@ -147,6 +193,20 @@ if page == "🏠 Enter Ingredients":
                 # Check difficulty
                 if difficulty != "All" and recipe["difficulty"] != difficulty:
                     continue
+
+                # Check diet filter
+                recipe_ingredients = recipe["ingredients"].split(",")
+                diet = st.session_state.diet_filter
+
+                if diet == "vegan":
+                    if any(i in NON_VEGAN_INGREDIENTS for i in recipe_ingredients):
+                        continue
+                elif diet == "vegetarian":
+                    if any(i in NON_VEGETARIAN_INGREDIENTS for i in recipe_ingredients):
+                        continue
+                elif diet == "meat":
+                    if not any(i in NON_VEGETARIAN_INGREDIENTS for i in recipe_ingredients):
+                        continue
 
                 # Compare ingredients
                 recipe_ingredients = recipe["ingredients"].split(",")

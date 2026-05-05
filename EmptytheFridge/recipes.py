@@ -11,6 +11,22 @@ base_ingredients = [
     "baking_powder", "baking_soda", "cornstarch"
 ]
 
+# Ingredients that are NOT vegan (animal products)
+NON_VEGAN_INGREDIENTS = {
+    "egg", "milk", "butter", "cream", "cheese", "mozzarella", "parmesan",
+    "yogurt", "cream_cheese", "feta", "ricotta", "sour_cream", "heavy_cream",
+    "chicken_breast", "ground_beef", "bacon", "pork", "salmon", "tuna",
+    "shrimp", "lamb", "turkey", "sausage", "ham", "prosciutto", "cod",
+    "honey", "mayonnaise", "worcestershire",
+}
+
+# Ingredients that are NOT vegetarian (meat/fish but dairy/eggs are ok)
+NON_VEGETARIAN_INGREDIENTS = {
+    "chicken_breast", "ground_beef", "bacon", "pork", "salmon", "tuna",
+    "shrimp", "lamb", "turkey", "sausage", "ham", "prosciutto", "cod",
+    "worcestershire",
+}
+
 # Estimated CHF value per unit/portion of each ingredient
 INGREDIENT_VALUE_CHF = {
     "potato": 0.30, "carrot": 0.20, "celery": 0.30, "onion": 0.20,
