@@ -16,7 +16,7 @@ from database import (
     update_rating
 )
 from recommender import calculate_recommendations, similar_recipes
-from recipes import base_ingredients, INGREDIENT_VALUE_CHF, NON_VEGAN_INGREDIENTS, NON_VEGETARIAN_INGREDIENTS
+from recipes import base_ingredients, INGREDIENT_VALUE_CHF, NON_VEGAN_INGREDIENTS, NON_VEGETARIAN_INGREDIENTS, ingredient_dictionary
 from api_loader import load_api_recipes
 
 # -----------------------------------------------------------------------------
@@ -256,6 +256,70 @@ if page == "🏠 Enter Ingredients":
                     with col_c:
                         st.metric("Calories", f"{recipe['calories']} kcal")
 
+                    # ----------------------------------------------------------
+                    # INGREDIENTS — static display for 2 portions
+                    # All amounts in recipes.py are based on 2 portions.
+                    # ----------------------------------------------------------
+
+                    # Helper: translate ingredient key to readable name
+                    def ingredient_name(key):
+                        if key in ingredient_dictionary:
+                            return ingredient_dictionary[key].get("en", key)
+                        return key
+
+                    # Build amounts dict from "key:amount,key:amount" string
+                    amounts_dict = {}
+                    if recipe.get("amounts"):
+                        for entry_amt in recipe["amounts"].split(","):
+                            if ":" in entry_amt:
+                                parts = entry_amt.split(":", 1)
+                                amounts_dict[parts[0].strip()] = parts[1].strip()
+
+                    # Split ingredients into 3 groups
+                    ingredient_keys = [z.strip() for z in recipe["ingredients"].split(",")]
+                    group_have = []
+                    group_pantry = []
+                    group_missing = []
+
+                    for key in ingredient_keys:
+                        if key in selected_keys:
+                            group_have.append(key)
+                        elif key in base_ingredients:
+                            group_pantry.append(key)
+                        else:
+                            group_missing.append(key)
+
+                    # --- Display ingredient groups (static, 2 portions) ---
+                    st.subheader("🛒 Ingredients for 2 portions")
+
+                    if group_have:
+                        st.markdown("✅ **You have these ingredients:**")
+                        for key in group_have:
+                            display = ingredient_name(key)
+                            amount = amounts_dict.get(key, "as needed")
+                            st.markdown(f"<span style='color:#00cc00'>• **{display}** — {amount}</span>", unsafe_allow_html=True)
+
+                    if group_pantry:
+                        st.markdown("🏠 **Basic pantry items (assumed at home):**")
+                        for key in group_pantry:
+                            display = ingredient_name(key)
+                            amount = amounts_dict.get(key, "as needed")
+                            st.markdown(f"<span style='color:#888888'>• **{display}** — {amount}</span>", unsafe_allow_html=True)
+
+                    if group_missing:
+                        st.markdown("🛒 **These ingredients are still missing:**")
+                        for key in group_missing:
+                            display = ingredient_name(key)
+                            amount = amounts_dict.get(key, "as needed")
+                            st.markdown(f"<span style='color:#ff8800'>• **{display}** — {amount}</span>", unsafe_allow_html=True)
+
+                    if not group_missing:
+                        st.success("🎉 You have all the ingredients at home!")
+
+                    st.divider()
+
+                    # Instructions
+                    st.subheader("👨‍🍳 Instructions")
                     st.write(recipe["instructions"])
 
                     # Add to history button
