@@ -450,7 +450,7 @@ elif page == "📖 History and Recommendations":
     # find recipes similar to the user's most recent cook.
     # ------------------------------------------------------------------
     st.divider()
-    st.subheader("🤖 Recommended for You")
+    st.subheader("Recommended for You")
     st.caption("Personalised suggestions calculated with machine learning based on your cooking history.")
 
     if len(history) == 0:
