@@ -354,17 +354,21 @@ elif page == "📊 Statistics":
 
         num_recipes = len(history)
         total_costs = 0
-        total_calories = 0
+        saved_ingredients_set = set()
 
         for entry in history:
             recipe = load_recipe(entry["recipe_id"])
             if recipe:
                 total_costs += calculate_costs(recipe)
-            if entry["calories"]:
-                total_calories += entry["calories"]
+                # Accumulate non-base ingredients used across all cooked recipes
+                recipe_ingredients = [i.strip() for i in recipe["ingredients"].split(",")]
+                for ingredient in recipe_ingredients:
+                    if ingredient and ingredient not in base_ingredients:
+                        saved_ingredients_set.add(ingredient)
 
         total_costs = round(total_costs, 2)
         saved_co2 = round(total_costs * 0.8, 1)
+        num_saved_ingredients = len(saved_ingredients_set)
 
         col1, col2, col3, col4 = st.columns(4)
 
@@ -373,13 +377,69 @@ elif page == "📊 Statistics":
         with col2:
             st.metric(
                 "💰 Saved Costs",
-                f"CHF {total_costs}",
+                f"CHF {total_costs:.2f}",
                 help="Based on the estimated value of the ingredients used."
             )
         with col3:
             st.metric("🌱 Saved CO2", f"{saved_co2} kg")
         with col4:
-            st.metric("Total Calories", f"{total_calories} kcal")
+            st.metric(
+                "🧺 Saved Ingredients",
+                num_saved_ingredients,
+                help="Unique non-basic ingredients used across all cooked recipes."
+            )
+
+        # ------------------------------------------------------------------
+        # CUMULATIVE CO2 SAVED BAR CHART
+        # Shows CO2 saved per session (bars) and running cumulative total (line).
+        # ------------------------------------------------------------------
+        st.divider()
+        st.subheader("🌱 CO2 Savings Over Time")
+        st.caption("CO2 saved per cooking session (bars) and cumulative total (line).")
+
+        import plotly.graph_objects as go
+
+        co2_dates = []
+        co2_per_session = []
+        co2_cumulative = []
+        running_co2 = 0
+
+        for entry in history:
+            recipe = load_recipe(entry["recipe_id"])
+            if recipe:
+                cost = calculate_costs(recipe)
+                session_co2 = round(cost * 0.8, 2)
+                running_co2 = round(running_co2 + session_co2, 2)
+                co2_dates.append(entry["date"])
+                co2_per_session.append(session_co2)
+                co2_cumulative.append(running_co2)
+
+        fig_co2 = go.Figure()
+
+        fig_co2.add_trace(go.Bar(
+            x=co2_dates,
+            y=co2_per_session,
+            name="CO2 per session",
+            marker_color="rgba(61,154,110,0.65)"
+        ))
+
+        fig_co2.add_trace(go.Scatter(
+            x=co2_dates,
+            y=co2_cumulative,
+            name="Cumulative CO2",
+            mode="lines+markers",
+            line=dict(color="#1d6e45", width=2),
+            marker=dict(size=6)
+        ))
+
+        fig_co2.update_layout(
+            yaxis_title="kg CO2",
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
+            height=350,
+            margin=dict(t=40)
+        )
+
+        st.plotly_chart(fig_co2, use_container_width=True)
 
         # ------------------------------------------------------------------
         # DAILY NUTRITION RADAR CHART
@@ -428,8 +488,6 @@ elif page == "📊 Statistics":
             fiber_pct      = min(100, round(fiber_today / 30 * 100))
             vitamins_pct   = min(100, vitamins_today)
             minerals_pct   = min(100, minerals_today)
-
-            import plotly.graph_objects as go
 
             categories = ["Calories", "Protein", "Carbs", "Fat", "Fiber", "Vitamins", "Minerals"]
 
