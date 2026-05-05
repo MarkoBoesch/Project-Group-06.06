@@ -68,7 +68,7 @@ def calculate_costs(recipe):
     return round(total, 2)
 
 # NAVIGATION
-# Top header plus a sidebar radio button. The chosen `page` value drives the
+# Top header plus a sidebar radio menu. The chosen `page` value drives the
 # if/elif blocks below to decide which page to render.
 
 col_left, col_right = st.columns([4, 1])
@@ -125,7 +125,7 @@ if page == "🥕 Enter Ingredients":
     
     st.subheader("Filters")
 
-    # --- Diet filter (button-based) ---
+    # Diet filter (button-based)
     # The chosen diet is persisted in session_state so it survives reruns.
     if "diet_filter" not in st.session_state:
         st.session_state.diet_filter = "All"
@@ -133,9 +133,12 @@ if page == "🥕 Enter Ingredients":
     st.write("**Diet**")
     diet_col1, diet_col2, diet_col3, diet_col4 = st.columns(4)
 
-    # Each button writes its value to session_state.diet_filter and triggers
-    # a rerun so the active button can re-render in "primary" style with
-    # a checkmark prefix instead of its emoji.
+
+    # When a button is clicked, it saves its value into session_state.diet_filter
+    # and then forces the page to rerun. On that rerun, the just-clicked button
+    # notices it is now the "active" one and re-renders itself in the highlighted
+    # primary style with a checkmark in front, while the other three buttons
+    # fall back to the plain secondary style with their food emoji.
     with diet_col1:
         if st.button(
             "✅ All" if st.session_state.diet_filter == "All" else "🍽️ All",
@@ -194,11 +197,14 @@ if page == "🥕 Enter Ingredients":
 
     # SEARCH RECIPES
     # When "Find Recipes" is clicked, every recipe is checked against all
-    # filters. Recipes that pass are scored by how many user ingredients
-    # they use and how many extra ingredients they still require.
+    # filters. Recipes that pass are then ranked by how many extra
+    # ingredients they still require. The ones requiring the fewest or none
+    # appear higher up in the results.
 
     if st.button("🔍 Find Recipes", type="primary"):
 
+        # If no ingredient is selected, warn the user and stop. Otherwise, load
+        # all recipes and start with an empty list to collect the matches.
         if len(selected_keys) == 0:
             st.warning("Please select at least one ingredient.")
         else:
@@ -244,12 +250,18 @@ if page == "🥕 Enter Ingredients":
                 # and are excluded from the missing count).
                 recipe_ingredients = recipe["ingredients"].split(",")
 
-                present_ingredients = sum(1 for key in selected_keys if key in recipe_ingredients)
+                # Count how many of the user's selected ingredients appear in this recipe.
+                present_ingredients = 0
+                for key in selected_keys:
+                    if key in recipe_ingredients:
+                        present_ingredients += 1
 
-                missing_ingredients = sum(
-                    1 for ingredient in recipe_ingredients
-                    if ingredient not in selected_keys and ingredient not in base_ingredients
-                )
+                # Count how many recipe ingredients the user is still missing,
+                # ignoring pantry staples.
+                missing_ingredients = 0
+                for ingredient in recipe_ingredients:
+                    if ingredient not in selected_keys and ingredient not in base_ingredients:
+                        missing_ingredients += 1
 
                 # Only keep recipes that use at least one of the user's
                 # ingredients - otherwise the result feels disconnected.
@@ -261,7 +273,10 @@ if page == "🥕 Enter Ingredients":
                     })
 
             # Sort by fewest missing ingredients first (= "easiest to cook now").
-            matching_recipes.sort(key=lambda x: x["missing"])
+            def by_missing(entry):
+                return entry["missing"]
+
+            matching_recipes.sort(key=by_missing)
 
             # Persist results in session_state so they survive reruns
             # triggered by other widgets (e.g. "Mark as Cooked").
@@ -278,11 +293,14 @@ if page == "🥕 Enter Ingredients":
 
         results = st.session_state.search_results
 
+        # Show a hint if there are no matches, otherwise display the result count.
         if len(results) == 0:
             st.info("No matching recipes found. Try different ingredients or filters.")
         else:
-            st.subheader(f"{len(results)} recipes found")
+            count = len(results)
+            st.subheader(f"{count} recipes found")
 
+            # Walk through every matching recipe and pull out its data for display.
             for entry in results:
                 recipe = entry["recipe"]
                 name = recipe["name"]
