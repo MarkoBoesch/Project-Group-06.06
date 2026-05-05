@@ -25,7 +25,7 @@ from api_loader import load_api_recipes
 
 st.set_page_config(
     page_title="EmptyTheFridge",
-    page_icon="🧊",
+    page_icon="👨‍🍳",
     layout="wide"
 )
 
