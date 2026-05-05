@@ -5,5 +5,5 @@
 streamlit
 scikit-learn
 numpy
-plotly
+matplotlib
 requests
