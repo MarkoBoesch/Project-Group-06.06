@@ -1,12 +1,22 @@
 # app.py
 # Main file of the app. Everything comes together here.
 #
+# This file is the entry point for the Streamlit app. It:
+# - Sets up the page configuration
+# - Loads recipes from TheMealDB API on the first run
+# - Routes the user between the three main pages:
+#       1. Enter Ingredients  (find recipes based on what you have at home)
+#       2. History            (cooked recipes + ML-based recommendations)
+#       3. Statistics         (cost / CO2 / nutrition overview)
+#
 # To start the app, type in the terminal: streamlit run app.py
 # -----------------------------------------------------------------------------
 
 import streamlit as st
 import datetime
+import matplotlib.pyplot as plt
 
+# Database functions: read recipes/ingredients/history and write history/ratings.
 from database import (
     load_all_recipes,
     load_recipe,
@@ -15,12 +25,16 @@ from database import (
     save_history,
     update_rating
 )
+# Machine-learning recommendation logic (cosine similarity on ingredient vectors).
 from recommender import calculate_recommendations, similar_recipes
+# Static data: pantry staples, diet filters, CHF prices, display name dictionary.
 from recipes import base_ingredients, INGREDIENT_VALUE_CHF, NON_VEGAN_INGREDIENTS, NON_VEGETARIAN_INGREDIENTS, ingredient_dictionary
+# Loader that pulls extra recipes from TheMealDB API into our local database.
 from api_loader import load_api_recipes
 
 # -----------------------------------------------------------------------------
 # PAGE SETTINGS
+# Browser tab title, icon and full-width ("wide") layout.
 # -----------------------------------------------------------------------------
 
 st.set_page_config(
@@ -31,7 +45,8 @@ st.set_page_config(
 
 # -----------------------------------------------------------------------------
 # LOAD API RECIPES ON START
-# Only runs once thanks to session_state.
+# Streamlit reruns the script on every interaction, so we use session_state
+# as a one-time guard to make sure the (slow) API import only runs once.
 # -----------------------------------------------------------------------------
 
 if "api_loaded" not in st.session_state:
@@ -41,20 +56,27 @@ if "api_loaded" not in st.session_state:
 
 # -----------------------------------------------------------------------------
 # CALCULATE COSTS
-# Calculates the estimated ingredient value of a recipe in CHF.
+# Helper used on the Statistics page to estimate how many CHF worth of
+# ingredients were "saved" by cooking a recipe instead of letting them spoil.
 # -----------------------------------------------------------------------------
 
 def calculate_costs(recipe):
     """Goes through all ingredients and adds the value per ingredient."""
     total = 0
+    # Ingredients are stored as a comma-separated string in the DB,
+    # so we split them back into a list of keys.
     ingredient_keys = recipe["ingredients"].split(",")
     for key in ingredient_keys:
         key = key.strip()
-        total += INGREDIENT_VALUE_CHF.get(key, 0.50)  # Default 0.50 for unknown ingredients
+        # Fall back to 0.50 CHF for unknown ingredients (e.g. ones added
+        # by the API loader that aren't in our price table).
+        total += INGREDIENT_VALUE_CHF.get(key, 0.50)
     return round(total, 2)
 
 # -----------------------------------------------------------------------------
 # NAVIGATION
+# Top header plus a sidebar radio button. The chosen `page` value drives the
+# if/elif blocks below to decide which page to render.
 # -----------------------------------------------------------------------------
 
 col_left, col_right = st.columns([4, 1])
@@ -75,6 +97,8 @@ page = st.sidebar.radio(
 
 # -----------------------------------------------------------------------------
 # PAGE 1: ENTER INGREDIENTS
+# Main "search" page. Users select what they have at home, optionally apply
+# diet/time/difficulty/allergen filters, and get matching recipes back.
 # -----------------------------------------------------------------------------
 
 if page == "🏠 Enter Ingredients":
@@ -82,6 +106,9 @@ if page == "🏠 Enter Ingredients":
     st.header("What do you have at home?")
     st.write("Select the ingredients you want to use up.")
 
+    # Load all known ingredients. Each entry has both an internal key
+    # (e.g. "bell_pepper") and a human-readable display name (e.g. "Bell Pepper").
+    # Display names are shown to the user, but matching is done with keys.
     all_ingredients = load_all_ingredients()
     ingredient_display_names = [i["name"] for i in all_ingredients]
 
@@ -93,7 +120,7 @@ if page == "🏠 Enter Ingredients":
         placeholder="e.g. Potato, Egg, Tomatoes..."
     )
 
-    # Convert display names back to keys
+    # Convert display names back into internal keys for matching.
     selected_keys = []
     for display_name in selected_display_names:
         for ingredient in all_ingredients:
@@ -102,16 +129,22 @@ if page == "🏠 Enter Ingredients":
 
     # ------------------------------------------------------------------
     # FILTERS
+    # Diet, cooking time, difficulty and allergen filters. Diet uses
+    # buttons (instead of a dropdown) so the active option is highlighted.
     # ------------------------------------------------------------------
     st.subheader("Filters")
 
     # --- Diet filter (button-based) ---
+    # The chosen diet is persisted in session_state so it survives reruns.
     if "diet_filter" not in st.session_state:
         st.session_state.diet_filter = "All"
 
     st.write("**Diet**")
     diet_col1, diet_col2, diet_col3, diet_col4 = st.columns(4)
 
+    # Each button writes its value to session_state.diet_filter and triggers
+    # a rerun so the active button can re-render in "primary" style with
+    # a ✅ prefix instead of its emoji.
     with diet_col1:
         if st.button(
             "✅ All" if st.session_state.diet_filter == "All" else "🍽️ All",
@@ -150,7 +183,7 @@ if page == "🏠 Enter Ingredients":
 
     st.write("")  # spacing
 
-    # --- Other filters ---
+    # --- Other filters (time, difficulty, allergens) ---
     col1, col2, col3 = st.columns(3)
 
     with col1:
@@ -164,11 +197,15 @@ if page == "🏠 Enter Ingredients":
             options=["All", "easy", "medium", "hard"]
         )
     with col3:
+        # Any recipe containing one of the chosen allergens is filtered out below.
         allergen_options = ["gluten", "dairy", "egg", "fish", "soy", "nuts"]
         allergies = st.multiselect("Allergies / Intolerances", options=allergen_options)
 
     # ------------------------------------------------------------------
     # SEARCH RECIPES
+    # When "Find Recipes" is clicked, every recipe is checked against all
+    # filters. Recipes that pass are scored by how many user ingredients
+    # they use and how many extra ingredients they still require.
     # ------------------------------------------------------------------
     if st.button("🔍 Find Recipes", type="primary"):
 
@@ -178,23 +215,26 @@ if page == "🏠 Enter Ingredients":
             all_recipes = load_all_recipes()
             matching_recipes = []
 
+            # Walk through every recipe and apply each filter in turn.
+            # `continue` is used to skip recipes that fail a filter.
             for recipe in all_recipes:
 
-                # Check allergens
+                # Allergen filter: skip if recipe contains any chosen allergen.
                 recipe_allergens = recipe["allergens"].split(",") if recipe["allergens"] else []
                 allergen_found = any(allergy in recipe_allergens for allergy in allergies)
                 if allergen_found:
                     continue
 
-                # Check time
+                # Time and difficulty filters.
                 if recipe["time_minutes"] > max_time:
                     continue
-
-                # Check difficulty
                 if difficulty != "All" and recipe["difficulty"] != difficulty:
                     continue
 
-                # Check diet filter
+                # Diet filter:
+                # - vegan       = no animal products at all
+                # - vegetarian  = dairy/eggs ok, no meat/fish
+                # - meat        = at least one meat/fish ingredient required
                 recipe_ingredients = recipe["ingredients"].split(",")
                 diet = st.session_state.diet_filter
 
@@ -208,7 +248,10 @@ if page == "🏠 Enter Ingredients":
                     if not any(i in NON_VEGETARIAN_INGREDIENTS for i in recipe_ingredients):
                         continue
 
-                # Compare ingredients
+                # Ingredient match scoring: count how many of the recipe's
+                # ingredients the user has, and how many are still missing
+                # (pantry staples like salt/oil are assumed to be at home
+                # and are excluded from the missing count).
                 recipe_ingredients = recipe["ingredients"].split(",")
 
                 present_ingredients = sum(1 for key in selected_keys if key in recipe_ingredients)
@@ -218,6 +261,8 @@ if page == "🏠 Enter Ingredients":
                     if ingredient not in selected_keys and ingredient not in base_ingredients
                 )
 
+                # Only keep recipes that use at least one of the user's
+                # ingredients - otherwise the result feels disconnected.
                 if present_ingredients > 0:
                     matching_recipes.append({
                         "recipe": recipe,
@@ -225,13 +270,20 @@ if page == "🏠 Enter Ingredients":
                         "missing": missing_ingredients
                     })
 
+            # Sort by fewest missing ingredients first (= "easiest to cook now").
             matching_recipes.sort(key=lambda x: x["missing"])
+
+            # Persist results in session_state so they survive reruns
+            # triggered by other widgets (e.g. "Mark as Cooked").
             st.session_state.search_results = matching_recipes
             st.session_state.show_results = True
             st.session_state.my_ingredients = selected_keys
 
     # ------------------------------------------------------------------
     # SHOW RESULTS
+    # Renders each matching recipe as a collapsible expander containing
+    # quick stats, a colour-coded ingredient list, instructions, and a
+    # "Mark as Cooked" button that writes a history entry.
     # ------------------------------------------------------------------
     if "show_results" in st.session_state and st.session_state.show_results:
 
@@ -248,6 +300,7 @@ if page == "🏠 Enter Ingredients":
 
                 with st.expander(f"🍽️ {name} — missing: {entry['missing']} ingredients"):
 
+                    # Quick stats row: time / difficulty / calories.
                     col_a, col_b, col_c = st.columns(3)
                     with col_a:
                         st.metric("Cooking time", f"{recipe['time_minutes']} min")
@@ -257,15 +310,18 @@ if page == "🏠 Enter Ingredients":
                         st.metric("Calories", f"{recipe['calories']} kcal")
 
                     # ----------------------------------------------------------
-                    # INGREDIENTS — static display for 2 portions
+                    # INGREDIENTS — static display for 2 portions.
                     # All amounts in recipes.py are based on 2 portions.
+                    # Each ingredient is sorted into one of three groups
+                    # (have / pantry / missing) for colour-coded display.
                     # ----------------------------------------------------------
 
-                    # Helper: translate ingredient key to readable name
+                    # Translate ingredient key to readable name (fallback = key itself).
                     def ingredient_name(key):
                         return ingredient_dictionary.get(key, key)
 
-                    # Build amounts dict from "key:amount,key:amount" string
+                    # Build {key: amount} dictionary from the "amounts" string,
+                    # which is stored as "key:amount,key:amount,...".
                     amounts_dict = {}
                     if recipe.get("amounts"):
                         for entry_amt in recipe["amounts"].split(","):
@@ -273,7 +329,10 @@ if page == "🏠 Enter Ingredients":
                                 parts = entry_amt.split(":", 1)
                                 amounts_dict[parts[0].strip()] = parts[1].strip()
 
-                    # Split ingredients into 3 groups
+                    # Sort ingredients into three groups for colour-coded display:
+                    #   have    = user already selected this ingredient
+                    #   pantry  = assumed to be at home (salt, oil, ...)
+                    #   missing = user still needs to buy this
                     ingredient_keys = [z.strip() for z in recipe["ingredients"].split(",")]
                     group_have = []
                     group_pantry = []
@@ -287,7 +346,7 @@ if page == "🏠 Enter Ingredients":
                         else:
                             group_missing.append(key)
 
-                    # --- Display ingredient groups (static, 2 portions) ---
+                    # Display the three groups with green / grey / orange colour coding.
                     st.subheader("🛒 Ingredients for 2 portions")
 
                     if group_have:
@@ -316,11 +375,14 @@ if page == "🏠 Enter Ingredients":
 
                     st.divider()
 
-                    # Instructions
+                    # Cooking instructions.
                     st.subheader("👨‍🍳 Instructions")
                     st.write(recipe["instructions"])
 
-                    # Add to history button
+                    # "Mark as Cooked" writes today's date and the recipe ID
+                    # into the history table, which feeds the Recommendations
+                    # and Statistics pages. The unique key prevents Streamlit
+                    # from confusing buttons across multiple expanders.
                     if st.button("✅ Mark as Cooked", key=f"cook_{recipe['id']}"):
                         today = datetime.date.today().strftime("%Y-%m-%d")
                         save_history(recipe["id"], today)
@@ -332,6 +394,9 @@ if page == "🏠 Enter Ingredients":
 
 # -----------------------------------------------------------------------------
 # PAGE 2: HISTORY AND RECOMMENDATIONS
+# Shows previously cooked recipes (with optional star ratings) and a list
+# of personalised recommendations computed by the recommender module
+# (cosine similarity on ingredient vectors).
 # -----------------------------------------------------------------------------
 
 elif page == "📜 History":
@@ -343,6 +408,9 @@ elif page == "📜 History":
 
     # ------------------------------------------------------------------
     # COOKING HISTORY
+    # Each cooked recipe gets its own expander showing date, calories
+    # and a 5-star rating widget. Once a rating has been saved, the
+    # slider is replaced by the rating itself.
     # ------------------------------------------------------------------
     st.subheader("Your Cooking History")
 
@@ -361,6 +429,8 @@ elif page == "📜 History":
                     st.write("Calories:", entry["calories"], "kcal")
 
                 with col_b:
+                    # If a rating exists, show stars. Otherwise, show
+                    # a slider + save button.
                     if entry["rating"]:
                         st.write("Your rating:", "⭐" * entry["rating"])
                     else:
@@ -375,6 +445,9 @@ elif page == "📜 History":
 
     # ------------------------------------------------------------------
     # ML RECOMMENDATIONS
+    # calculate_recommendations() (in recommender.py) builds a 0/1
+    # ingredient matrix for all recipes and uses cosine similarity to
+    # find recipes similar to the user's most recent cook.
     # ------------------------------------------------------------------
     st.divider()
     st.subheader("🤖 Recommended for You")
@@ -388,6 +461,8 @@ elif page == "📜 History":
         if not recommendations:
             st.info("No recommendations available yet.")
         else:
+            # Render each recommendation in its own expander, similar
+            # to the search results page.
             for rec in recommendations:
                 rec_name = rec["name"]
 
@@ -401,7 +476,7 @@ elif page == "📜 History":
                     with col_c:
                         st.metric("Calories", f"{rec['calories']} kcal")
 
-                    # Build amounts dict
+                    # Build {key: amount} dict (same logic as on the search page).
                     amounts_dict_rec = {}
                     if rec.get("amounts"):
                         for entry_amt in rec["amounts"].split(","):
@@ -409,8 +484,9 @@ elif page == "📜 History":
                                 parts = entry_amt.split(":", 1)
                                 amounts_dict_rec[parts[0].strip()] = parts[1].strip()
 
-                    # Split into 3 groups (no user ingredient context on history page,
-                    # so pantry items go grey, everything else orange)
+                    # On the History page the user did not enter their
+                    # current ingredients, so we only have two groups:
+                    # pantry staples (grey) and everything else (orange).
                     ingredient_keys_rec = [z.strip() for z in rec["ingredients"].split(",")]
                     group_pantry_rec = []
                     group_missing_rec = []
@@ -441,6 +517,8 @@ elif page == "📜 History":
                     st.subheader("👨\u200d🍳 Instructions")
                     st.write(rec["instructions"])
 
+                    # Same "Mark as Cooked" mechanism as on the search page,
+                    # but with a different key prefix to avoid conflicts.
                     if st.button("✅ Mark as Cooked", key=f"rec_cook_{rec['id']}"):
                         today = datetime.date.today().strftime("%Y-%m-%d")
                         save_history(rec["id"], today)
@@ -450,6 +528,10 @@ elif page == "📜 History":
 
 # -----------------------------------------------------------------------------
 # PAGE 3: STATISTICS
+# Aggregates data from the cooking history into visual statistics:
+#   - Top KPI row: number of recipes, saved CHF, saved CO2, saved ingredients
+#   - Bar+line chart: CO2 saved per session and cumulatively (matplotlib)
+#   - Radar chart : nutritional values for everything cooked TODAY (matplotlib)
 # -----------------------------------------------------------------------------
 
 elif page == "📊 Statistics":
@@ -458,12 +540,16 @@ elif page == "📊 Statistics":
 
     history = load_history()
 
+    # If there is no history yet, all charts and metrics would be empty,
+    # so we just show a friendly hint instead.
     if len(history) == 0:
         st.info("No statistics available yet. Cook some recipes first!")
     else:
 
         st.subheader("Overview")
 
+        # Aggregate over the whole history: total cost, plus the set of
+        # unique non-pantry ingredients used (= ingredients "saved").
         num_recipes = len(history)
         total_costs = 0
         saved_ingredients_set = set()
@@ -472,16 +558,18 @@ elif page == "📊 Statistics":
             recipe = load_recipe(entry["recipe_id"])
             if recipe:
                 total_costs += calculate_costs(recipe)
-                # Accumulate non-base ingredients used across all cooked recipes
+                # Pantry staples are excluded so they don't inflate the count.
                 recipe_ingredients = [i.strip() for i in recipe["ingredients"].split(",")]
                 for ingredient in recipe_ingredients:
                     if ingredient and ingredient not in base_ingredients:
                         saved_ingredients_set.add(ingredient)
 
         total_costs = round(total_costs, 2)
+        # Rough rule-of-thumb: 0.8 kg CO2 saved per CHF of food not wasted.
         saved_co2 = round(total_costs * 0.8, 1)
         num_saved_ingredients = len(saved_ingredients_set)
 
+        # Four-column KPI row at the top of the page.
         col1, col2, col3, col4 = st.columns(4)
 
         with col1:
@@ -502,15 +590,18 @@ elif page == "📊 Statistics":
             )
 
         # ------------------------------------------------------------------
-        # CUMULATIVE CO2 SAVED BAR CHART
-        # Shows CO2 saved per session (bars) and running cumulative total (line).
+        # CUMULATIVE CO2 SAVED BAR CHART (matplotlib)
+        # Combined chart with two layers:
+        #   - Bars: how much CO2 was saved on each individual cooking day
+        #   - Line: running total ("how much have I saved so far")
+        # Both are plotted on the same axis using matplotlib.
         # ------------------------------------------------------------------
         st.divider()
         st.subheader("🌱 CO2 Savings Over Time")
         st.caption("CO2 saved per cooking session (bars) and cumulative total (line).")
 
-        import plotly.graph_objects as go
-
+        # Loop through history once and build three parallel lists:
+        # date labels, per-session CO2 values, and a running cumulative sum.
         co2_dates = []
         co2_per_session = []
         co2_cumulative = []
@@ -526,48 +617,52 @@ elif page == "📊 Statistics":
                 co2_per_session.append(session_co2)
                 co2_cumulative.append(running_co2)
 
-        fig_co2 = go.Figure()
+        # Build the figure: bars first, line on top so it draws over them.
+        fig_co2, ax_co2 = plt.subplots(figsize=(8, 3.5))
 
-        fig_co2.add_trace(go.Bar(
-            x=co2_dates,
-            y=co2_per_session,
-            name="CO2 per session",
-            marker_color="rgba(61,154,110,0.65)"
-        ))
-
-        fig_co2.add_trace(go.Scatter(
-            x=co2_dates,
-            y=co2_cumulative,
-            name="Cumulative CO2",
-            mode="lines+markers",
-            line=dict(color="#1d6e45", width=2),
-            marker=dict(size=6)
-        ))
-
-        fig_co2.update_layout(
-            yaxis_title="kg CO2",
-            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
-            height=350,
-            margin=dict(t=40)
+        ax_co2.bar(
+            co2_dates,
+            co2_per_session,
+            color="#3d9a6e",
+            alpha=0.65,
+            label="CO2 per session"
+        )
+        ax_co2.plot(
+            co2_dates,
+            co2_cumulative,
+            color="#1d6e45",
+            linewidth=2,
+            marker="o",
+            markersize=5,
+            label="Cumulative CO2"
         )
 
-        st.plotly_chart(fig_co2, use_container_width=True)
+        ax_co2.set_ylabel("kg CO2")
+        ax_co2.legend(loc="upper left")
+        # Rotate x-tick labels so dates don't overlap when there are many.
+        plt.setp(ax_co2.get_xticklabels(), rotation=30, ha="right")
+        fig_co2.tight_layout()
+
+        st.pyplot(fig_co2)
 
         # ------------------------------------------------------------------
-        # DAILY NUTRITION RADAR CHART
-        # Shows combined nutritional values of all recipes cooked today.
+        # DAILY NUTRITION RADAR CHART (matplotlib)
+        # Sums up the nutritional values of all recipes cooked TODAY and
+        # plots them as percentages of the standard daily intake.
+        # The outer edge of the radar = 100% of the daily intake.
         # ------------------------------------------------------------------
         st.divider()
         st.subheader("🕸️ Today's Nutritional Values")
         st.caption("Combined nutritional values of all recipes cooked today. Outer edge = 100% daily intake.")
 
+        # Filter the history down to entries with today's date.
         today = datetime.date.today().strftime("%Y-%m-%d")
-
         today_entries = [entry for entry in history if entry["date"] == today]
 
         if len(today_entries) == 0:
             st.info("No recipes cooked today yet. Cook something and come back!")
         else:
+            # Sum each nutrient across every recipe cooked today, treating None as 0.
             calories_today = 0
             protein_today = 0
             carbs_today = 0
@@ -592,7 +687,10 @@ elif page == "📊 Statistics":
 
             st.write("Cooked today:", ", ".join(today_names))
 
-            # Calculate percentages of daily recommended intake
+            # Convert absolute values into percentages of daily intake.
+            # Reference values are rough adult averages. Each percentage is
+            # capped at 100 so the radar chart stays in bounds.
+            # Vitamins/Minerals are already stored on a 0-100 scale.
             calories_pct   = min(100, round(calories_today / 2000 * 100))
             protein_pct    = min(100, round(protein_today / 50 * 100))
             carbs_pct      = min(100, round(carbs_today / 260 * 100))
@@ -602,41 +700,45 @@ elif page == "📊 Statistics":
             minerals_pct   = min(100, minerals_today)
 
             categories = ["Calories", "Protein", "Carbs", "Fat", "Fiber", "Vitamins", "Minerals"]
-
             values = [
                 calories_pct, protein_pct, carbs_pct, fat_pct,
                 fiber_pct, vitamins_pct, minerals_pct
             ]
 
-            # Repeat first value at end to close the radar chart
-            categories_closed = categories + [categories[0]]
+            # Build the radar chart manually with matplotlib's polar projection.
+            # Each category occupies one slice of the circle. We compute the
+            # angle for every category and repeat the first value at the end
+            # so the polygon closes cleanly.
+            import math
+
+            num_vars = len(categories)
+            angles = [n / float(num_vars) * 2 * math.pi for n in range(num_vars)]
+            angles_closed = angles + [angles[0]]
             values_closed = values + [values[0]]
 
-            fig = go.Figure()
-
-            fig.add_trace(go.Scatterpolar(
-                r=values_closed,
-                theta=categories_closed,
-                fill="toself",
-                name="Today's Daily Intake",
-                line_color="green",
-                fillcolor="rgba(0, 200, 0, 0.2)"
-            ))
-
-            fig.update_layout(
-                polar=dict(
-                    radialaxis=dict(
-                        visible=True,
-                        range=[0, 100],
-                        ticksuffix="%"
-                    )
-                ),
-                showlegend=True,
-                height=450
+            fig_radar, ax_radar = plt.subplots(
+                figsize=(5, 5),
+                subplot_kw=dict(polar=True)
             )
 
-            st.plotly_chart(fig, use_container_width=True)
+            # Draw the green-filled polygon plus its outline.
+            ax_radar.plot(angles_closed, values_closed, color="green", linewidth=2)
+            ax_radar.fill(angles_closed, values_closed, color="green", alpha=0.2)
 
+            # Place category labels around the circle and fix the radial
+            # axis at 0-100% so different days are visually comparable.
+            ax_radar.set_xticks(angles)
+            ax_radar.set_xticklabels(categories)
+            ax_radar.set_ylim(0, 100)
+            ax_radar.set_yticks([20, 40, 60, 80, 100])
+            ax_radar.set_yticklabels(["20%", "40%", "60%", "80%", "100%"])
+
+            fig_radar.tight_layout()
+            st.pyplot(fig_radar)
+
+            # Detail breakdown below the chart:
+            # same numbers as in the radar, plus the absolute values
+            # in parentheses so the user can see what is behind the %.
             st.write("Detail view (% of daily intake):")
 
             col_a, col_b = st.columns(2)
