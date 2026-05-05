@@ -93,6 +93,8 @@ page = st.sidebar.radio(
 # diet/time/difficulty/allergen filters, and get matching recipes back.
 # -----------------------------------------------------------------------------
 
+# Only when the user has selected "🥕 Enter Ingredients" in the navigation bar 
+# does this whole block execute.
 if page == "🥕 Enter Ingredients":
 
     st.header("What do you have at home?")
@@ -338,7 +340,11 @@ if page == "🥕 Enter Ingredients":
                     #   have    = user already selected this ingredient
                     #   pantry  = assumed to be at home (salt, oil, ...)
                     #   missing = user still needs to buy this
-                    ingredient_keys = [z.strip() for z in recipe["ingredients"].split(",")]
+                    ingredient_keys = []
+                    for piece in recipe["ingredients"].split(","):
+                        cleaned = piece.strip()
+                        ingredient_keys.append(cleaned)
+
                     group_have = []
                     group_pantry = []
                     group_missing = []
@@ -376,11 +382,11 @@ if page == "🥕 Enter Ingredients":
                             st.markdown(f"<span style='color:#ff8800'>• **{display}** — {amount}</span>", unsafe_allow_html=True)
 
                     if not group_missing:
-                        st.success("🎉 You have all the ingredients at home!")
+                        st.success("You have all the ingredients at home!")
 
                     st.divider()
 
-                    # Cooking instructions.
+                    # Cooking instructions pulled from recipes.py or TheMealDB (loaded via api_loader.py).
                     st.subheader("👨‍🍳 Instructions")
                     st.write(recipe["instructions"])
 
@@ -404,6 +410,8 @@ if page == "🥕 Enter Ingredients":
 # (cosine similarity on ingredient vectors).
 # -----------------------------------------------------------------------------
 
+# Only when the user has selected "📖 History and Recommendations" in the navigation bar
+# does this whole block execute.
 elif page == "📖 History and Recommendations":
 
     st.header("📖 History and Recommendations")
@@ -490,7 +498,11 @@ elif page == "📖 History and Recommendations":
                     # On the History page the user did not enter their
                     # current ingredients, so we only have two groups:
                     # pantry staples (grey) and everything else (orange).
-                    ingredient_keys_rec = [z.strip() for z in rec["ingredients"].split(",")]
+                    ingredient_keys_rec = []
+                    for piece in rec["ingredients"].split(","):
+                        cleaned = piece.strip()
+                        ingredient_keys_rec.append(cleaned)
+
                     group_pantry_rec = []
                     group_missing_rec = []
 
@@ -516,6 +528,7 @@ elif page == "📖 History and Recommendations":
                             amount = amounts_dict_rec.get(key, "as needed")
                             st.markdown(f"<span style='color:#ff8800'>• **{display}** — {amount}</span>", unsafe_allow_html=True)
 
+                    # Instructions come from recipes.py or TheMealDB (loaded via api_loader.py).
                     st.divider()
                     st.subheader("👨\u200d🍳 Instructions")
                     st.write(rec["instructions"])
@@ -537,6 +550,8 @@ elif page == "📖 History and Recommendations":
 #   - Radar chart : nutritional values for everything cooked TODAY (matplotlib)
 # -----------------------------------------------------------------------------
 
+# Only when the user has selected "📊 Statistics" in the navigation bar does 
+# this whole block execute.
 elif page == "📊 Statistics":
 
     st.header("Your Statistics")
@@ -562,7 +577,11 @@ elif page == "📊 Statistics":
             if recipe:
                 total_costs += calculate_costs(recipe)
                 # Pantry staples are excluded so they don't inflate the count.
-                recipe_ingredients = [i.strip() for i in recipe["ingredients"].split(",")]
+                recipe_ingredients = []
+                for piece in recipe["ingredients"].split(","):
+                    cleaned = piece.strip()
+                    recipe_ingredients.append(cleaned)
+
                 for ingredient in recipe_ingredients:
                     if ingredient and ingredient not in base_ingredients:
                         saved_ingredients_set.add(ingredient)
