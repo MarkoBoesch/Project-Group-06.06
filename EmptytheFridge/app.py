@@ -89,8 +89,8 @@ st.divider()
 page = st.sidebar.radio(
     "Navigation",
     [
-        "🥕 Enter Ingredients",
-        "🗒️ History and Recommendations",
+        "🏠 Enter Ingredients",
+        "📜 History",
         "📊 Statistics",
     ]
 )
@@ -101,7 +101,7 @@ page = st.sidebar.radio(
 # diet/time/difficulty/allergen filters, and get matching recipes back.
 # -----------------------------------------------------------------------------
 
-if page == "🥕 Enter Ingredients":
+if page == "🏠 Enter Ingredients":
 
     st.header("What do you have at home?")
     st.write("Select the ingredients you want to use up.")
@@ -399,9 +399,9 @@ if page == "🥕 Enter Ingredients":
 # (cosine similarity on ingredient vectors).
 # -----------------------------------------------------------------------------
 
-elif page == "🗒️ History and Recommendations":
+elif page == "📜 History":
 
-    st.header("🗒️ History and Recommendations")
+    st.header("📜 History and Recommendations")
 
     history = load_history()
     all_recipes = load_all_recipes()
@@ -450,7 +450,7 @@ elif page == "🗒️ History and Recommendations":
     # find recipes similar to the user's most recent cook.
     # ------------------------------------------------------------------
     st.divider()
-    st.subheader("Recommended for You")
+    st.subheader("🤖 Recommended for You")
     st.caption("Personalised suggestions calculated with machine learning based on your cooking history.")
 
     if len(history) == 0:
@@ -717,7 +717,7 @@ elif page == "📊 Statistics":
             values_closed = values + [values[0]]
 
             fig_radar, ax_radar = plt.subplots(
-                figsize=(5, 5),
+                figsize=(4, 4),
                 subplot_kw=dict(polar=True)
             )
 
@@ -728,13 +728,19 @@ elif page == "📊 Statistics":
             # Place category labels around the circle and fix the radial
             # axis at 0-100% so different days are visually comparable.
             ax_radar.set_xticks(angles)
-            ax_radar.set_xticklabels(categories)
+            ax_radar.set_xticklabels(categories, fontsize=9)
             ax_radar.set_ylim(0, 100)
             ax_radar.set_yticks([20, 40, 60, 80, 100])
-            ax_radar.set_yticklabels(["20%", "40%", "60%", "80%", "100%"])
+            ax_radar.set_yticklabels(["20%", "40%", "60%", "80%", "100%"], fontsize=8)
 
             fig_radar.tight_layout()
-            st.pyplot(fig_radar)
+
+            # Render the radar chart in the middle of three columns so it
+            # only takes up ~1/3 of the page width instead of expanding
+            # to the full width of the main container.
+            radar_left, radar_center, radar_right = st.columns([1, 2, 1])
+            with radar_center:
+                st.pyplot(fig_radar)
 
             # Detail breakdown below the chart:
             # same numbers as in the radar, plus the absolute values
