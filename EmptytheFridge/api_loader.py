@@ -1,24 +1,45 @@
 # api_loader.py
-# This file loads recipes from the TheMealDB API and saves them to our database.
+# Loads recipes from TheMealDB API and saves them to our local database.
 #
-# TheMealDB API is free and needs no API key.
-# Documentation: https://www.themealdb.com/api.php
+#
+# What this file does:
+# - Connects to TheMealDB's free public API (no API key required).
+# - Fetches recipes letter-by-letter (search.php?f=a, ?f=b, ...) up to a limit.
+# - Translates TheMealDB ingredient names into our internal ingredient keys
+#   (e.g. "chicken breast" -> "chicken_breast") so they match the rest of the app.
+# - Estimates allergens, cooking time, difficulty and nutritional values that
+#   the API does not provide.
+# - Registers every ingredient that appears in API recipes in the ingredients
+#   table so users can actually select them in the search page.
+#
+# Used by app.py on:
+#   - the very first start of the app (load_api_recipes), guarded by
+#     st.session_state so it only runs once per session.
+#
+# API documentation: https://www.themealdb.com/api.php
 # -----------------------------------------------------------------------------
 
 import requests
+# requests handles the HTTP calls to TheMealDB. It's the standard Python
+# library for talking to web APIs (much simpler than the built-in urllib).
+
 import sqlite3
+# sqlite3 is built into Python and lets us read/write the local recipe database.
+# We open our own connections here instead of importing from database.py to
+# keep this file self-contained and avoid circular imports.
 
 DB_NAME = "emptythefridge.db"
 API_URL = "https://www.themealdb.com/api/json/v1/1/"
 
 
-# -----------------------------------------------------------------------------
 # HELPER FUNCTIONS
-# These are small utility functions used by the bigger functions below.
-# -----------------------------------------------------------------------------
+# Small utility functions used by the bigger functions further down.
+# Kept up here so the main logic below reads cleanly.
 
 def get_connection():
     """Opens a connection to the database."""
+    # row_factory = sqlite3.Row lets us access columns by name (row["id"])
+    # instead of by index (row[0]), which makes the code far more readable.
     connection = sqlite3.connect(DB_NAME)
     connection.row_factory = sqlite3.Row
     return connection
@@ -26,6 +47,10 @@ def get_connection():
 
 def recipe_exists(api_id):
     """Checks if a recipe with this API ID already exists in the database."""
+    # We check by api_id (TheMealDB's own ID) rather than our internal id,
+    # because the internal id is generated locally and would not help us
+    # detect duplicates from the API. This prevents the same recipe from
+    # being inserted twice if load_api_recipes() is ever called more than once.
     connection = get_connection()
     cursor = connection.cursor()
     cursor.execute("SELECT id FROM recipes WHERE api_id = ?", (api_id,))
@@ -40,6 +65,11 @@ def add_api_columns():
     We need these two extra columns to track which recipes came from the API.
     The try/except simply skips the ALTER TABLE if the columns are already there.
     """
+    # database.py creates the recipes table without these two columns
+    # (the hardcoded recipes don't need them). We add them on top here so
+    # this file stays the single owner of all "API-related" schema changes.
+    # SQLite has no "ADD COLUMN IF NOT EXISTS", so we just try and catch the
+    # error if the columns already exist on a later run.
     connection = get_connection()
     cursor = connection.cursor()
     try:
@@ -57,6 +87,9 @@ def get_next_id():
     We start at 1000 so that API recipe IDs never clash with the
     hardcoded recipe IDs in recipes.py (which are much smaller numbers).
     """
+    # MAX(id) returns None on an empty table, so we need the explicit check.
+    # Starting API IDs at 1000 also makes them visually distinguishable from
+    # hardcoded recipes when debugging the database directly.
     connection = get_connection()
     cursor = connection.cursor()
     cursor.execute("SELECT MAX(id) FROM recipes")
@@ -65,14 +98,18 @@ def get_next_id():
     return 1000 if result is None else result + 1
 
 
-# -----------------------------------------------------------------------------
 # INGREDIENT TRANSLATION
 # TheMealDB uses plain English names like "chicken breast".
 # Our app uses internal keys like "chicken_breast".
 # This dictionary maps the most common TheMealDB names to our keys.
 # If a name is not in this dictionary, translate_ingredient() uses a
 # simple fallback: replace spaces with underscores.
-# -----------------------------------------------------------------------------
+#
+# Why this matters: the recommender (recommender.py) compares recipes by
+# their ingredient keys. If two recipes use different keys for the same
+# real-world ingredient (e.g. "chicken breast" vs "chicken_breast"), the
+# similarity score drops and recommendations get worse. Mapping known
+# variants to a single canonical key keeps the ML signal clean.
 
 INGREDIENT_MAPPING = {
     "chicken": "chicken_breast",
@@ -165,9 +202,14 @@ def translate_ingredient(ingredient_name):
     spaces and hyphens with underscores.
     Example: "thai basil"  ->  "thai_basil"
     """
+    # Lowercase and strip whitespace first so "Chicken Breast " and
+    # "chicken breast" both find the same dictionary entry.
     name_lower = ingredient_name.lower().strip()
     if name_lower in INGREDIENT_MAPPING:
         return INGREDIENT_MAPPING[name_lower]
+    # Fallback: turn the raw name into a key-shaped string. It won't match
+    # our hardcoded ingredients but will at least be consistent across all
+    # API recipes that use the same name.
     return name_lower.replace(" ", "_").replace("-", "_")
 
 
@@ -176,21 +218,22 @@ def make_display_name(ingredient_key):
     Turns an internal key into a readable display name for the ingredient selector.
     Example: "chicken_breast"  ->  "Chicken Breast"
     """
+    # title() capitalises the first letter of every word — good enough for
+    # most ingredient names. Edge cases like "olive oil" come out fine.
     return ingredient_key.replace("_", " ").title()
 
 
-# -----------------------------------------------------------------------------
-# REGISTER INGREDIENTS  ← THIS IS THE KEY FIX
+# REGISTER INGREDIENTS
 #
-# The ingredients table is what populates the ingredient selector in the app.
-# Hardcoded recipes (from recipes.py) have their ingredients pre-loaded into
-# that table by database.py on first run.
-# API recipes do NOT — so after saving an API recipe we call this function
-# to make sure every ingredient key that appears in API recipes is also
-# listed in the ingredients table.
-# Without this step, users can never select those ingredients, so API
-# recipes never match and are invisible in search results.
-# -----------------------------------------------------------------------------
+# The ingredients table is what populates the ingredient selector on the
+# "Enter Ingredients" page in app.py. Hardcoded recipes (from recipes.py)
+# have their ingredients pre-loaded into that table by database.py on
+# first run. API recipes do NOT — so after saving an API recipe we call
+# this function to make sure every ingredient key that appears in API
+# recipes is also listed in the ingredients table.
+#
+# Without this step, users can never select those ingredients from the
+# multiselect, so API recipes never match a search and stay invisible.
 
 def register_ingredients(ingredient_keys):
     """
@@ -206,7 +249,10 @@ def register_ingredients(ingredient_keys):
         # e.g. "sweet_potato" becomes "Sweet Potato"
         display_name = make_display_name(key)
 
-        # INSERT OR IGNORE: if the key already exists, do nothing.
+        # INSERT OR IGNORE: if the key already exists in the UNIQUE column,
+        # SQLite silently does nothing instead of raising an error. This
+        # lets us call register_ingredients() once per recipe without
+        # worrying about duplicates.
         cursor.execute(
             "INSERT OR IGNORE INTO ingredients (key, name) VALUES (?, ?)",
             (key, display_name)
@@ -216,20 +262,28 @@ def register_ingredients(ingredient_keys):
     connection.close()
 
 
-# -----------------------------------------------------------------------------
 # ALLERGEN DETECTION
-# TheMealDB does not tag allergens, so we check the ingredient list ourselves.
-# -----------------------------------------------------------------------------
+# TheMealDB does not tag allergens, so we check the ingredient list ourselves
+# against a few hand-picked lists of "ingredients that contain X".
+# The result is a comma-separated string in the same format used by the
+# hardcoded recipes, so the allergen filter on the search page works
+# identically for both kinds of recipes.
 
 def detect_allergens(ingredient_keys):
     """Detects allergens based on the ingredients and returns them as a comma-separated string."""
     allergens = []
 
+    # These four lists cover the most common allergen filters in the app.
+    # They are intentionally short and conservative — if an ingredient isn't
+    # in here, we simply don't tag the allergen rather than risk false alarms.
     gluten_ingredients  = ["flour", "pasta", "bread", "oats"]
     dairy_ingredients   = ["milk", "butter", "cream", "cheese", "mozzarella", "parmesan", "yogurt", "cream_cheese"]
     egg_ingredients     = ["egg"]
     fish_ingredients    = ["salmon", "tuna", "shrimp"]
 
+    # Walk through every ingredient and add the matching allergen to the list.
+    # The "not in allergens" check stops us from adding the same allergen twice
+    # (e.g. a recipe with both "milk" and "butter" should only tag "dairy" once).
     for key in ingredient_keys:
         if key in gluten_ingredients and "gluten" not in allergens:
             allergens.append("gluten")
@@ -243,13 +297,15 @@ def detect_allergens(ingredient_keys):
     return ",".join(allergens)
 
 
-# -----------------------------------------------------------------------------
 # NUTRITION ESTIMATION
 # TheMealDB does not return nutritional values, so we estimate them
-# based on which ingredients are in the recipe.
-# -----------------------------------------------------------------------------
+# based on which ingredients are in the recipe. The numbers are rough
+# per-portion estimates, good enough to power the radar chart on the
+# Statistics page in app.py without being misleading.
 
 # Estimated calories contributed by each ingredient (rough values per portion).
+# Only ingredients that significantly affect calorie count are listed; small
+# additions like spices or herbs are simply ignored (they contribute ~0 kcal).
 CALORIES_PER_INGREDIENT = {
     "chicken_breast": 165, "ground_beef": 250, "bacon": 300, "salmon": 180,
     "tuna": 130, "shrimp": 80, "pork": 220, "egg": 70, "milk": 50,
@@ -268,24 +324,33 @@ def estimate_nutrition(ingredient_keys):
     vitamins and minerals.
     """
     # Add up calories for every recognised ingredient.
-    # Ingredients not in our table contribute 0 calories.
+    # Ingredients not in our table contribute 0 calories — that's fine for
+    # spices and herbs but means a recipe full of unknown ingredients would
+    # end up at 0 kcal, which is why we have the fallback below.
     calories = sum(CALORIES_PER_INGREDIENT.get(key, 0) for key in ingredient_keys)
 
-    # If no ingredient was recognised, use a sensible default.
+    # If no ingredient was recognised, use a sensible default so the
+    # statistics page doesn't show zeros for these recipes.
     if calories == 0:
         calories = 350
 
     # Rough macronutrient split: 15% protein, 50% carbs, 35% fat.
+    # We divide by 4 (kcal per gram of protein/carbs) and 9 (kcal per gram
+    # of fat) to convert kilocalories into grams.
     protein        = int(calories * 0.15 / 4)
     carbohydrates  = int(calories * 0.50 / 4)
     fat            = int(calories * 0.35 / 9)
 
-    # More ingredients = more fibre/vitamins/minerals (rough estimate).
+    # More ingredients = more fibre/vitamins/minerals (rough heuristic).
+    # The min/max calls keep the values inside sane ranges so they look
+    # reasonable on the radar chart even for very long ingredient lists.
     fiber    = max(2, int(len(ingredient_keys) * 0.8))
     vitamins = min(80, len(ingredient_keys) * 8)
     minerals = min(60, len(ingredient_keys) * 6)
 
     return {
+        # Cap calories at 900 so a single recipe can't dominate the
+        # "daily calories" radar slice on the Statistics page.
         "calories":      min(calories, 900),
         "protein":       protein,
         "carbohydrates": carbohydrates,
@@ -296,12 +361,16 @@ def estimate_nutrition(ingredient_keys):
     }
 
 
-# -----------------------------------------------------------------------------
 # SAVE RECIPE TO DATABASE
-# -----------------------------------------------------------------------------
+# Inserts one fully-prepared recipe dictionary into the recipes table.
+# Mirrors the INSERT statement in database.py's populate_database(), with
+# two extra columns (api_id, api_source) that only API recipes use.
 
 def save_recipe(recipe_data):
     """Saves a single recipe to the database."""
+    # INSERT OR IGNORE protects against a duplicate primary key — if for any
+    # reason get_next_id() returns an ID that's already in use, the row is
+    # silently skipped instead of raising an IntegrityError.
     connection = get_connection()
     cursor = connection.cursor()
     cursor.execute("""
@@ -335,11 +404,13 @@ def save_recipe(recipe_data):
     connection.close()
 
 
-# -----------------------------------------------------------------------------
 # FETCH RECIPES FROM THEMEALDB
-# The API lets us search by first letter (search.php?f=a, ?f=b, ...).
+# Main loop that actually talks to the API.
+#
+# TheMealDB lets us search by first letter (search.php?f=a, ?f=b, ...).
 # We loop through all 26 letters and collect up to max_recipes total.
-# -----------------------------------------------------------------------------
+# Each meal returned by the API is then translated, enriched with our
+# own estimates (allergens, nutrition, time, difficulty) and saved.
 
 def load_from_themealdb(max_recipes=200):
     """
@@ -350,12 +421,18 @@ def load_from_themealdb(max_recipes=200):
     letters = "abcdefghijklmnopqrstuvwxyz"
 
     for letter in letters:
-        # Stop as soon as we have reached the limit.
+        # Stop as soon as we have reached the limit. Without this, we would
+        # always fetch all 26 letters even if max_recipes was reached early.
         if saved >= max_recipes:
             break
 
+        # The whole letter loop is wrapped in try/except so one bad request
+        # (timeout, network blip, malformed JSON) doesn't kill the whole
+        # import — we just skip that letter and continue with the next one.
         try:
             # Request all meals whose name starts with this letter.
+            # timeout=10 prevents the app startup from hanging forever if
+            # TheMealDB is slow or down.
             response = requests.get(f"{API_URL}search.php?f={letter}", timeout=10)
 
             if response.status_code != 200:
@@ -363,6 +440,9 @@ def load_from_themealdb(max_recipes=200):
 
             data = response.json()
 
+            # TheMealDB returns {"meals": null} (not an empty list) when no
+            # meals match the search letter, so we have to check for None
+            # explicitly before trying to iterate.
             if data["meals"] is None:
                 continue  # No meals starting with this letter
 
@@ -372,13 +452,18 @@ def load_from_themealdb(max_recipes=200):
 
                 api_id = meal["idMeal"]
 
-                # Skip recipes we already have in the database.
+                # Skip recipes we already have in the database. This makes
+                # it safe to re-run the importer without ending up with
+                # duplicates.
                 if recipe_exists(api_id):
                     continue
 
+                # PARSE INGREDIENTS AND AMOUNTS
                 # TheMealDB stores ingredients in 20 numbered fields:
                 # strIngredient1, strIngredient2, ..., strIngredient20
                 # and their amounts in strMeasure1, strMeasure2, ...
+                # Unused slots are empty strings, which is how we know
+                # where the ingredient list ends.
                 ingredient_keys = []
                 amount_parts = []
 
@@ -386,23 +471,34 @@ def load_from_themealdb(max_recipes=200):
                     ingredient_name = meal.get(f"strIngredient{i}", "")
                     amount          = meal.get(f"strMeasure{i}", "")
 
-                    # Empty strings mean there are no more ingredients.
+                    # Empty / whitespace strings mean there are no more
+                    # ingredients in this recipe. We can't break here
+                    # though, because some recipes have gaps (slot 5 empty,
+                    # slot 6 filled), so we just skip the empty ones.
                     if ingredient_name and ingredient_name.strip():
                         key = translate_ingredient(ingredient_name)
                         ingredient_keys.append(key)
 
                         if amount and amount.strip():
-                            # Store as "key:amount" so we can parse it later.
+                            # Store as "key:amount" so app.py can parse it
+                            # back into a dictionary when displaying the
+                            # recipe detail view.
                             amount_parts.append(f"{key}:{amount.strip()}")
 
-                # Skip recipes that have no recognisable ingredients.
+                # Skip recipes that have no recognisable ingredients —
+                # they would never match a search anyway.
                 if not ingredient_keys:
                     continue
 
+                # ENRICH WITH OUR OWN ESTIMATES
+                # The API doesn't give us nutrition, allergens, time or
+                # difficulty, so we derive them from the ingredient list.
                 nutrition = estimate_nutrition(ingredient_keys)
                 allergens = detect_allergens(ingredient_keys)
 
-                # Estimate cooking time and difficulty from the number of ingredients.
+                # Estimate cooking time and difficulty from the number of
+                # ingredients. Crude but surprisingly accurate: short
+                # ingredient lists tend to mean simple, fast recipes.
                 if len(ingredient_keys) <= 5:
                     time_minutes = 20
                     difficulty   = "easy"
@@ -413,6 +509,8 @@ def load_from_themealdb(max_recipes=200):
                     time_minutes = 50
                     difficulty   = "hard"
 
+                # Build the dictionary in the exact shape that save_recipe()
+                # (and the recipes table) expects.
                 recipe_data = {
                     "id":            get_next_id(),
                     "name":          meal["strMeal"],
@@ -435,34 +533,43 @@ def load_from_themealdb(max_recipes=200):
 
                 save_recipe(recipe_data)
 
-                # FIX: register every ingredient of this recipe in the
-                # ingredients table so users can select them in the app.
+                # Register every ingredient of this recipe in the
+                # ingredients table so users can select them on the
+                # search page (see the REGISTER INGREDIENTS section above
+                # for why this is essential).
                 register_ingredients(ingredient_keys)
 
                 saved += 1
 
         except Exception as error:
+            # Log and move on — one broken letter shouldn't take down the
+            # entire import. The user will still get all the recipes from
+            # the other 25 letters.
             print(f"Error loading letter {letter}: {error}")
             continue
 
     return saved
 
 
-# -----------------------------------------------------------------------------
 # MAIN ENTRY POINT
-# Called by app.py once on startup (guarded by session_state so it only
-# runs on the very first load, not on every Streamlit rerun).
-# -----------------------------------------------------------------------------
+# Called by app.py once on startup (guarded by st.session_state so it only
+# runs on the very first load, not on every Streamlit rerun). On subsequent
+# starts it sees that API recipes are already in the database and exits
+# immediately without making any network calls.
 
 def load_api_recipes():
     """
     Prepares the database columns and loads API recipes if none exist yet.
     Returns the number of newly loaded recipes (0 if already loaded before).
     """
-    # Make sure the api_id and api_source columns exist.
+    # Make sure the api_id and api_source columns exist before we try to
+    # write to them. Safe to call every time — does nothing if columns
+    # are already present.
     add_api_columns()
 
-    # Check how many API recipes are already in the database.
+    # Check how many API recipes are already in the database. We use this
+    # as the signal for "have we ever run the importer before?". Counting
+    # by api_source means we only count API recipes, not the hardcoded ones.
     connection = get_connection()
     cursor = connection.cursor()
     cursor.execute("SELECT COUNT(*) FROM recipes WHERE api_source = 'TheMealDB'")
@@ -470,12 +577,15 @@ def load_api_recipes():
     connection.close()
 
     if count_api_recipes == 0:
-        # First run: fetch from the API.
+        # First run: fetch from the API. The print statements show up in
+        # the terminal where Streamlit is running and are useful for
+        # debugging if the import seems stuck.
         print("Loading recipes from TheMealDB API...")
         count = load_from_themealdb(max_recipes=200)
         print(f"{count} recipes loaded from TheMealDB.")
         return count
     else:
-        # Already loaded on a previous run — nothing to do.
+        # Already loaded on a previous run — nothing to do. Returning 0
+        # signals "no new recipes" to the caller in app.py.
         print(f"TheMealDB recipes already present: {count_api_recipes} recipes.")
         return 0

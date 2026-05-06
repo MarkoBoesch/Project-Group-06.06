@@ -1,17 +1,64 @@
 # recipes.py
-# All recipes are stored here.
-# To add a new recipe, just copy the last block and fill it in.
+# Static data file: hardcoded recipes plus all the lookup tables they depend on.
+#
+#
+# What this file does:
+# - Defines `base_ingredients`: pantry staples the search algorithm assumes
+#   are always at home (so the user doesn't have to tick them every time).
+# - Defines `NON_VEGAN_INGREDIENTS` and `NON_VEGETARIAN_INGREDIENTS`: lookup
+#   sets the diet filter on the search page uses to exclude recipes.
+# - Defines `INGREDIENT_VALUE_CHF`: rough Swiss-Franc value per ingredient,
+#   used by the Statistics page to estimate the money saved by cooking
+#   instead of letting food spoil.
+# - Defines `ingredient_dictionary`: maps internal keys (e.g. "bell_pepper")
+#   to readable display names (e.g. "Bell Pepper") shown in the UI.
+# - Defines `recipes`: the list of all hardcoded recipe dictionaries. This
+#   is the seed data that database.py loads into the recipes table on the
+#   first run; api_loader.py later adds more recipes from TheMealDB on top.
+#
+# This file contains NO logic — it's pure data. Everything in it is imported
+# by app.py and database.py and used as-is.
+#
+# Used by app.py on:
+#   - the Enter Ingredients page (base_ingredients, NON_VEGAN/VEGETARIAN
+#     for the diet filter, ingredient_dictionary for display names)
+#   - the Statistics page (INGREDIENT_VALUE_CHF for the cost calculation)
+# Used by database.py on:
+#   - the very first run (populate_database) to fill the recipes and
+#     ingredients tables.
+#
+# To add a new recipe, just copy the last block in `recipes` and fill it in.
 # Instructions are split into numbered steps (separated by \n).
 # -----------------------------------------------------------------------------
 
-# Base ingredients assumed to always be available at home
+
+# BASE INGREDIENTS
+# Pantry staples that we assume are always at home. The search page in app.py
+# automatically treats these as "available" without the user having to select
+# them — otherwise every recipe with salt or oil would never match.
+# Also used on the Statistics page to count "saved ingredients": only
+# non-base ingredients count, because using up salt isn't really preventing
+# food waste.
+
 base_ingredients = [
     "salt", "pepper", "oil", "butter", "sugar", "flour", "water",
     "garlic", "onion", "vegetable_broth", "olive_oil", "vinegar",
     "baking_powder", "baking_soda", "cornstarch"
 ]
 
-# Ingredients that are NOT vegan (animal products)
+# DIET FILTER SETS
+# Used by the diet buttons on the search page (All / With Meat / Vegetarian /
+# Vegan). The filter logic in app.py does a simple set check: if a recipe's
+# ingredients overlap with the relevant set, the recipe is excluded from
+# the results.
+#
+# We use Python sets (not lists) because membership lookups (`x in set`)
+# are O(1) instead of O(n) — and the filter runs over every recipe on
+# every search.
+
+
+# Ingredients that are NOT vegan: all animal products, including dairy and eggs.
+# A recipe with any of these is hidden when the user picks the "Vegan" filter.
 NON_VEGAN_INGREDIENTS = {
     "egg", "milk", "butter", "cream", "cheese", "mozzarella", "parmesan",
     "yogurt", "cream_cheese", "feta", "ricotta", "sour_cream", "heavy_cream",
@@ -20,14 +67,28 @@ NON_VEGAN_INGREDIENTS = {
     "honey", "mayonnaise", "worcestershire",
 }
 
-# Ingredients that are NOT vegetarian (meat/fish but dairy/eggs are ok)
+# Ingredients that are NOT vegetarian: meat and fish only — dairy and eggs
+# are fine for vegetarians, so they are NOT in this set.
+# A recipe with any of these is hidden when the user picks the "Vegetarian"
+# filter. (Worcestershire is included because it traditionally contains
+# anchovies.)
 NON_VEGETARIAN_INGREDIENTS = {
     "chicken_breast", "ground_beef", "bacon", "pork", "salmon", "tuna",
     "shrimp", "lamb", "turkey", "sausage", "ham", "prosciutto", "cod",
     "worcestershire",
 }
 
-# Estimated CHF value per unit/portion of each ingredient
+# INGREDIENT VALUE TABLE (CHF)
+# Estimated value in Swiss Francs per unit/portion of each ingredient.
+# Used by app.py's calculate_costs() on the Statistics page to estimate how
+# much money was "saved" by cooking a recipe instead of letting the
+# ingredients spoil in the fridge.
+#
+# The numbers are rough averages from Swiss supermarkets — accurate enough
+# for the savings KPIs on the dashboard without pretending to be a real
+# pricing engine. Ingredients not in this table fall back to 0.50 CHF
+# (handled in app.py via the .get() default).
+
 INGREDIENT_VALUE_CHF = {
     "potato": 0.30, "carrot": 0.20, "celery": 0.30, "onion": 0.20,
     "garlic": 0.10, "tomato": 0.40, "zucchini": 0.50, "bell_pepper": 0.60,
@@ -54,7 +115,16 @@ INGREDIENT_VALUE_CHF = {
     "worcestershire": 0.15, "heavy_cream": 0.70,
 }
 
-# Maps ingredient keys to their English display names
+# INGREDIENT DICTIONARY
+# Maps internal keys to human-readable English display names. The whole app
+# uses keys internally for matching (so "bell_pepper" in one recipe equals
+# "bell_pepper" in another), but the user only ever sees the values from
+# this dictionary in the multiselect dropdown and on recipe cards.
+#
+# database.py loads this dictionary into the `ingredients` table on first
+# run, where api_loader.py later adds more entries on top whenever it
+# imports new recipes from TheMealDB.
+
 ingredient_dictionary = {
     "potato": "Potato", "carrot": "Carrot", "celery": "Celery",
     "onion": "Onion", "garlic": "Garlic", "tomato": "Tomato",
@@ -89,6 +159,37 @@ ingredient_dictionary = {
     "bbq_sauce": "BBQ Sauce", "worcestershire": "Worcestershire Sauce",
 }
 
+
+# RECIPES
+# The seed list of all hardcoded recipes. database.py copies this list into
+# the recipes table on first run; from then on the database is the source
+# of truth and changes to this list only take effect when the database is
+# reset (delete emptythefridge.db and restart the app).
+#
+# Schema of one recipe dictionary:
+#   id            unique integer ID. Hardcoded recipes use small numbers (1..N);
+#                 api_loader.py picks IDs >= 1000 to stay out of the way.
+#   name          display name shown on recipe cards.
+#   ingredients   list of internal ingredient keys (must match keys in
+#                 ingredient_dictionary above). database.py joins this list
+#                 into a comma-separated string when storing it.
+#   amounts       comma-separated "key:amount" pairs (e.g. "potato:500g").
+#                 Optional but very helpful for the recipe detail view.
+#   time_minutes  estimated total cooking time in minutes (used by the
+#                 cooking-time slider filter on the search page).
+#   difficulty    one of "easy" / "medium" / "hard" (used by the difficulty
+#                 dropdown on the search page).
+#   allergens     comma-separated allergens from this fixed set:
+#                 gluten, dairy, egg, fish, soy, nuts. Empty string if none.
+#   calories ... minerals
+#                 nutrition values per portion. Calories is in kcal, the
+#                 macros (protein/carbs/fat/fiber) are in grams, vitamins
+#                 and minerals are on a 0-100 scale (≈ % of daily intake)
+#                 so they fit directly on the radar chart on the
+#                 Statistics page.
+#   instructions  step-by-step instructions. Each step starts with
+#                 "**Step N - Title:**" and steps are separated by \n,
+#                 which app.py renders as a bullet list on the detail page.
 
 recipes = [
 
@@ -753,8 +854,3 @@ recipes = [
         "instructions": "**Step 1 - Prepare the vegetables:** Cut all vegetables into even 2 cm cubes. Finely chop onion and garlic.\n**Step 2 - Salt the eggplant:** Place cubes in a sieve, salt and let sit for 10 minutes. Pat dry.\n**Step 3 - Saute onion and garlic:** Heat olive oil. Cook onion and garlic for 5 minutes.\n**Step 4 - Fry the eggplant:** Add and fry for 5 minutes until lightly coloured.\n**Step 5 - Add remaining vegetables:** Add bell pepper, zucchini and tomatoes. Stir well.\n**Step 6 - Simmer and serve:** Simmer for 20-25 minutes until soft and saucy. Season and serve with bread or rice."
     },
 ]
-
-# -----------------------------------------------------------------------
-# ADD NEW RECIPES BELOW
-# Just copy the block above, increase the id by 1 and fill it in!
-# -----------------------------------------------------------------------
