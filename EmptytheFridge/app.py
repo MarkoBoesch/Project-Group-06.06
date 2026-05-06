@@ -311,7 +311,7 @@ if page == "🥕 Enter Ingredients":
                 # - vegan       = no animal products at all
                 # - vegetarian  = dairy/eggs ok, no meat/fish
                 # - meat        = at least one meat/fish ingredient required
-                #
+                
                 # .strip() is used so that API recipe ingredients with
                 # accidental whitespace around the key still match correctly.
                 recipe_ingredients = [i.strip() for i in recipe["ingredients"].split(",")]
@@ -401,8 +401,8 @@ if page == "🥕 Enter Ingredients":
                     with col_c:
                         st.metric("Calories", f"{recipe['calories']} kcal")
 
-                    # INGREDIENTS — static display for 2 portions.
-                    # Amounts come straight from TheMealDB (typically for 2-4 portions).
+                    # INGREDIENTS: Static display for 2 portions.
+                    # Amounts come straight from TheMealDB.
                     # Each ingredient is sorted into one of three groups
                     # (have / pantry / missing) for colour-coded display.
 
@@ -427,8 +427,6 @@ if page == "🥕 Enter Ingredients":
                         save_history(recipe["id"], today)
                         st.success(f"'{name}' added to your cooking history!")
                         st.rerun()
-
-
 
 
 # -----------------------------------------------------------------------------
@@ -525,8 +523,9 @@ elif page == "📖 History and Recommendations":
                         st.metric("Calories", f"{rec['calories']} kcal")
 
                     # Render ingredients via the shared helper. No
-                    # selected_keys here, because on the History page the
-                    # user did not enter what they currently have at home.
+                    # selected_keys here, because on the History and 
+                    # Recommendations page the user did not enter what 
+                    # they currently have at home.
                     render_recipe_ingredients(rec)
 
                     # Instructions come from TheMealDB (loaded via api_loader.py).
@@ -556,16 +555,18 @@ elif page == "📖 History and Recommendations":
     st.caption("Recipes that match your taste profile, weighted by the ratings you gave to past meals.")
 
     if len(history) == 0:
-        st.warning("You have to cook a recipe first before a recommendation can be given here.")
+        st.warning("You have to cook and rate a recipe first before a recommendation can be given here.")
     else:
-        rated_recommendations = calculate_recommendations_by_rating(
-            history, all_recipes, num_recommendations=4, exclude_ids=shown_ids
-        )
-
-        if not rated_recommendations:
-            # History exists, but no rating saved yet. First, the user is asked to rate.
-            st.warning("You have to rate your meals first before a recommendation can be given here.")
+        # Filter for entries that actually have a rating. The rating-based
+        # recommender needs at least one rated recipe to build a taste profile.
+        rated_history = [h for h in history if h.get("rating")]
+        if not rated_history:
+            st.warning("You have to rate your cooked recipes first before a recommendation can be given here.")
         else:
+            rated_recommendations = calculate_recommendations_by_rating(
+                history, all_recipes, num_recommendations=4, exclude_ids=shown_ids
+            )
+
             # Same expander layout as the section above, just a different
             # button-key prefix to avoid Streamlit key collisions.
             for rec in rated_recommendations:
