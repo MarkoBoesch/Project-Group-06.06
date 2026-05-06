@@ -812,6 +812,17 @@ elif page == "📊 Statistics":
         ax_co2.set_ylabel("kg CO2")
         ax_co2.legend(loc="upper left")
 
+        # Y-AXIS RANGE
+        # Without this, matplotlib would auto-fit the axis to the tallest
+        # bar — so a single 8 kg bar on day 1 would fill the entire chart.
+        # Instead we set a minimum ceiling of 25 kg (room for ~5 cooking
+        # sessions) and let it grow from there, keeping ~30% headroom
+        # above the current cumulative total so the line never touches
+        # the top of the chart.
+        current_max = max(co2_cumulative) if co2_cumulative else 0
+        y_max = max(25, current_max * 1.3)
+        ax_co2.set_ylim(0, y_max)
+
         # Format the x-axis as proper dates. The locator picks roughly 8
         # tick labels regardless of how wide the window grows, so a 7-day
         # chart shows every day while a 60-day chart shows every ~week.
