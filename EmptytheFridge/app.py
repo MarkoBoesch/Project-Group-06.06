@@ -476,7 +476,7 @@ elif page == "📖 History and Recommendations":
 
     st.divider()
     st.subheader("🍳 Recommendations of similar recipes")
-    st.caption("Recipes with an ingredient profile similar to the one you cooked most recently.")
+    st.caption("Personalised suggestions calculated with machine learning based on your cooking history.")
 
     if len(history) == 0:
         st.info("Cook your first recipe to unlock personalised recommendations!")
