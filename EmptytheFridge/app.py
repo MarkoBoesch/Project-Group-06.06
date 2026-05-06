@@ -26,7 +26,7 @@ from database import (
     update_rating
 )
 # Machine-learning recommendation logic (cosine similarity on ingredient vectors).
-from recommender import calculate_recommendations
+from recommender import calculate_recommendations, calculate_recommendations_by_rating
 # Static data: pantry staples, diet filters, CHF prices, display name dictionary.
 from recipes import base_ingredients, INGREDIENT_VALUE_CHF, NON_VEGAN_INGREDIENTS, NON_VEGETARIAN_INGREDIENTS, ingredient_dictionary
 # Loader that pulls extra recipes from TheMealDB API into our local database.
@@ -469,19 +469,19 @@ elif page == "📖 History and Recommendations":
                             update_rating(entry["id"], rating)
                             st.rerun()
 
-    # ML RECOMMENDATIONS
+    # ML RECOMMENDATIONS — SIMILAR RECIPES (BASED ON LAST COOKED)
     # calculate_recommendations() (in recommender.py) builds a 0/1
     # ingredient matrix for all recipes and uses cosine similarity to
     # find recipes similar to the user's most recent cook.
 
     st.divider()
-    st.subheader("Recommended for You")
-    st.caption("Personalised suggestions calculated with machine learning based on your cooking history.")
+    st.subheader("🍳 Recommendations of similar recipes")
+    st.caption("Recipes with an ingredient profile similar to the one you cooked most recently.")
 
     if len(history) == 0:
         st.info("Cook your first recipe to unlock personalised recommendations!")
     else:
-        recommendations = calculate_recommendations(history, all_recipes, num_recommendations=5)
+        recommendations = calculate_recommendations(history, all_recipes, num_recommendations=4)
 
         if not recommendations:
             st.info("No recommendations available yet.")
@@ -550,6 +550,98 @@ elif page == "📖 History and Recommendations":
                     # Same "Mark as Cooked" mechanism as on the search page,
                     # but with a different key prefix to avoid conflicts.
                     if st.button("✅ Mark as Cooked", key=f"rec_cook_{rec['id']}"):
+                        today = datetime.date.today().strftime("%Y-%m-%d")
+                        save_history(rec["id"], today)
+                        st.success(f"'{rec_name}' added to your cooking history!")
+                        st.rerun()
+
+    # ML RECOMMENDATIONS — BECAUSE YOU LIKED IT LAST TIME (BASED ON RATING)
+    # calculate_recommendations_by_rating() reuses the same cosine-similarity
+    # logic, but takes the user's HIGHEST-RATED recipe as the reference vector
+    # instead of the most recently cooked one. If the user has not cooked or
+    # rated anything yet, the function returns an empty list so we can show
+    # a warning here.
+
+    st.divider()
+    st.subheader("⭐ Because you liked it last time")
+    st.caption("Recipes similar to the one you rated highest in your cooking history.")
+
+    if len(history) == 0:
+        st.warning("You have to cook a recipe first before a recommendation can be given here.")
+    else:
+        rated_recommendations = calculate_recommendations_by_rating(
+            history, all_recipes, num_recommendations=4
+        )
+
+        if not rated_recommendations:
+            # History exists, but no rating saved yet -> ask the user to rate.
+            st.warning("You have to rate your meals first before a recommendation can be given here.")
+        else:
+            # Same expander layout as the section above, just a different
+            # button-key prefix to avoid Streamlit key collisions.
+            for rec in rated_recommendations:
+                rec_name = rec["name"]
+
+                with st.expander(f"🍽️ {rec_name} — {rec['time_minutes']} min · {rec['difficulty']}"):
+
+                    col_a, col_b, col_c = st.columns(3)
+                    with col_a:
+                        st.metric("Cooking time", f"{rec['time_minutes']} min")
+                    with col_b:
+                        st.metric("Difficulty", rec["difficulty"])
+                    with col_c:
+                        st.metric("Calories", f"{rec['calories']} kcal")
+
+                    # Build {key: amount} dict (same logic as on the search page).
+                    amounts_dict_rec = {}
+                    if rec.get("amounts"):
+                        for entry_amt in rec["amounts"].split(","):
+                            if ":" in entry_amt:
+                                parts = entry_amt.split(":", 1)
+                                amounts_dict_rec[parts[0].strip()] = parts[1].strip()
+
+                    # On the History page the user did not enter their
+                    # current ingredients, so we only have two groups:
+                    # pantry staples (grey) and everything else (orange).
+                    ingredient_keys_rec = []
+                    for piece in rec["ingredients"].split(","):
+                        cleaned = piece.strip()
+                        ingredient_keys_rec.append(cleaned)
+
+                    group_pantry_rec = []
+                    group_missing_rec = []
+
+                    for key in ingredient_keys_rec:
+                        if key in base_ingredients:
+                            group_pantry_rec.append(key)
+                        else:
+                            group_missing_rec.append(key)
+
+                    st.subheader("🛒 Ingredients for 2 portions")
+
+                    if group_pantry_rec:
+                        st.markdown("🏠 **Basic pantry items (assumed at home):**")
+                        for key in group_pantry_rec:
+                            display = ingredient_dictionary.get(key, key)
+                            amount = amounts_dict_rec.get(key, "as needed")
+                            st.markdown(f"<span style='color:#888888'>• **{display}** — {amount}</span>", unsafe_allow_html=True)
+
+                    if group_missing_rec:
+                        st.markdown("🛒 **Ingredients you will need:**")
+                        for key in group_missing_rec:
+                            display = ingredient_dictionary.get(key, key)
+                            amount = amounts_dict_rec.get(key, "as needed")
+                            st.markdown(f"<span style='color:#ff8800'>• **{display}** — {amount}</span>", unsafe_allow_html=True)
+
+                    # Instructions come from recipes.py or TheMealDB (loaded via api_loader.py).
+                    st.divider()
+                    st.subheader("👨\u200d🍳 Instructions")
+                    st.write(rec["instructions"])
+
+                    # Same "Mark as Cooked" mechanism as above, but with a
+                    # different key prefix (rated_cook_) so Streamlit doesn't
+                    # confuse it with the buttons in the section above.
+                    if st.button("✅ Mark as Cooked", key=f"rated_cook_{rec['id']}"):
                         today = datetime.date.today().strftime("%Y-%m-%d")
                         save_history(rec["id"], today)
                         st.success(f"'{rec_name}' added to your cooking history!")

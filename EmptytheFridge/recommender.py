@@ -5,11 +5,13 @@
 # What this file does:
 # - Turns every recipe into a numerical vector (one slot per ingredient).
 # - Uses scikit-learn's cosine_similarity to measure how alike two recipes are.
-# - Recommends recipes that are similar to the user's last cooked recipe,
-#   while skipping anything they have already cooked too often.
+# - Recommends recipes that are similar to the user's last cooked recipe
+#   OR similar to the user's highest-rated recipe, while skipping anything
+#   they have already cooked too often.
 #
 # Used by app.py on:
-#   - the "History and Recommendations" page (calculate_recommendations)
+#   - the "History and Recommendations" page (calculate_recommendations,
+#     calculate_recommendations_by_rating)
 #   - the recipe detail view ("You might also like...", similar_recipes)
 # -----------------------------------------------------------------------------
 
@@ -56,7 +58,7 @@ def recipes_to_numbers(all_recipes, all_ingredient_keys):
     return np.array(table)
 
 
-# CALCULATE RECOMMENDATIONS
+# CALCULATE RECOMMENDATIONS (BASED ON LAST COOKED RECIPE)
 # Main recommendation function used on the "History and Recommendations" page.
 # Takes the user's cooking history, finds the most recently cooked recipe and
 # recommends recipes that are similar to it (but not yet cooked too often).
@@ -169,3 +171,162 @@ def calculate_recommendations(history_list, all_recipes, num_recommendations=5):
                 break
 
     return recommendations
+
+
+# CALCULATE RECOMMENDATIONS (BASED ON HIGHEST RATED RECIPE)
+# Second recommendation function used on the "History and Recommendations" page.
+# Takes the user's cooking history, finds the recipe the user rated highest and
+# recommends recipes that are similar to it (but not yet cooked too often).
+# Same ML logic as calculate_recommendations, only the reference recipe differs:
+# instead of "the last one cooked" we pick "the one the user liked most".
+
+def calculate_recommendations_by_rating(history_list, all_recipes, num_recommendations=4):
+    """
+    Calculates recipe recommendations based on the user's ratings.
+
+    history_list        = list of history dictionaries from the database
+    all_recipes         = list of all recipe dictionaries from the database
+    num_recommendations = how many recommendations to return
+
+    Returns an empty list when the user has not rated any recipe yet, so that
+    app.py can display a warning telling the user to cook and rate first.
+    """
+
+    # Empty history -> nothing to base recommendations on. Returning [] lets
+    # app.py show the warning ("rate your meals first or cook first").
+    if len(history_list) == 0:
+        return []
+
+    # FIND THE HIGHEST-RATED ENTRY
+    # Walk through the history and keep the entry with the best rating.
+    # Entries without a rating (rating is None) are ignored, because we
+    # can only rely on stars the user actually gave.
+    rated_entries = [entry for entry in history_list if entry["rating"]]
+
+    # No rating yet -> return [] so app.py can show the warning instead of
+    # blindly recommending random recipes.
+    if len(rated_entries) == 0:
+        return []
+
+    # Pick the entry with the highest rating. Ties are broken by recency:
+    # because history is already sorted newest-first, max() returns the
+    # most recent entry among those that share the top rating.
+    best_entry = max(rated_entries, key=lambda entry: entry["rating"])
+    best_recipe_id = best_entry["recipe_id"]
+
+    # COLLECT ALL UNIQUE INGREDIENTS
+    # Same logic as in calculate_recommendations: build the column list
+    # for the number table.
+    all_ingredient_keys = []
+    for recipe in all_recipes:
+        for ingredient in recipe["ingredients"].split(","):
+            ingredient = ingredient.strip()
+            if ingredient not in all_ingredient_keys:
+                all_ingredient_keys.append(ingredient)
+
+    # Convert recipes to number vectors.
+    number_table = recipes_to_numbers(all_recipes, all_ingredient_keys)
+
+    # IDS OF ALREADY COOKED RECIPES (for the "cooked too often" filter)
+    cooked_ids = [entry["recipe_id"] for entry in history_list]
+
+    id_counter = {}
+    for rid in cooked_ids:
+        id_counter[rid] = id_counter.get(rid, 0) + 1
+
+    cooked_too_often = [rid for rid, count in id_counter.items() if count > 2]
+
+    # Find the row index of the highest-rated recipe in the number_table so
+    # we know which vector to compare against.
+    best_index = None
+    for i, recipe in enumerate(all_recipes):
+        if recipe["id"] == best_recipe_id:
+            best_index = i
+            break
+
+    # Safety net in case the rated recipe is no longer in the database.
+    if best_index is None:
+        return []
+
+    # COSINE SIMILARITY (THE ML PART)
+    # Compare the highest-rated recipe's vector to every other recipe's vector.
+    similarities = cosine_similarity(
+        [number_table[best_index]],
+        number_table
+    )[0]
+
+    # Sort indices from most to least similar.
+    sorted_indices = np.argsort(similarities)[::-1]
+
+    # BUILD THE RECOMMENDATION LIST
+    # Same filtering rules as the other function: skip the reference recipe
+    # itself and skip anything cooked more than twice.
+    recommendations = []
+    for index in sorted_indices:
+        recipe = all_recipes[index]
+
+        if recipe["id"] == best_recipe_id:
+            continue
+        if recipe["id"] in cooked_too_often:
+            continue
+
+        recommendations.append(recipe)
+
+        if len(recommendations) >= num_recommendations:
+            break
+
+    # Top-up if too many recipes were filtered out, so the user always
+    # sees a full set of suggestions.
+    if len(recommendations) < num_recommendations:
+        for recipe in all_recipes:
+            if recipe not in recommendations and recipe["id"] != best_recipe_id:
+                recommendations.append(recipe)
+            if len(recommendations) >= num_recommendations:
+                break
+
+    return recommendations
+
+
+# SIMILAR RECIPES
+# Used on the recipe detail page ("You might also like..."). Takes a single
+# recipe ID and returns a few recipes whose ingredient pattern is closest to it.
+
+def similar_recipes(recipe_id, all_recipes, count=3):
+    """
+    Finds recipes similar to a specific recipe.
+    Used on the recipe detail page.
+    """
+
+    all_ingredient_keys = []
+    for recipe in all_recipes:
+        for ingredient in recipe["ingredients"].split(","):
+            ingredient = ingredient.strip()
+            if ingredient not in all_ingredient_keys:
+                all_ingredient_keys.append(ingredient)
+
+    number_table = recipes_to_numbers(all_recipes, all_ingredient_keys)
+
+    target_index = None
+    for i, recipe in enumerate(all_recipes):
+        if recipe["id"] == recipe_id:
+            target_index = i
+            break
+
+    if target_index is None:
+        return []
+
+    similarities = cosine_similarity(
+        [number_table[target_index]],
+        number_table
+    )[0]
+
+    sorted_indices = np.argsort(similarities)[::-1]
+
+    similar = []
+    for index in sorted_indices:
+        if all_recipes[index]["id"] != recipe_id:
+            similar.append(all_recipes[index])
+        if len(similar) >= count:
+            break
+
+    return similar
