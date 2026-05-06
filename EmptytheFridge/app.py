@@ -68,6 +68,83 @@ def calculate_costs(recipe):
         total += INGREDIENT_VALUE_CHF.get(key, 0.50)
     return round(total, 2)
 
+
+# RENDER RECIPE INGREDIENTS
+# Used three times in the app (on the search page and twice on the History
+# page) to display a recipe's ingredient list grouped and colour-coded.
+# Pulled out into a helper to avoid copy-pasting the same ~25 lines in
+# three places.
+#
+# Two display modes:
+#   - selected_keys = None  (History page)
+#       Two groups: pantry staples (grey) and everything else (orange).
+#       The user did not enter any ingredients on this page, so we cannot
+#       say which ones they already have.
+#   - selected_keys = [list of keys]  (Search page)
+#       Three groups: ingredients the user said they have (green), pantry
+#       staples (grey), still missing (orange). Also shows a success
+#       message if all ingredients are covered.
+
+def render_recipe_ingredients(recipe, selected_keys=None):
+    """Renders a recipe's ingredients as colour-coded groups."""
+
+    # Build a {key: amount} dictionary from the "amounts" string, which is
+    # stored as "key:amount,key:amount,...". Used to display "potato — 200g"
+    # instead of just "potato".
+    amounts_dict = {}
+    if recipe.get("amounts"):
+        for entry_amt in recipe["amounts"].split(","):
+            if ":" in entry_amt:
+                parts = entry_amt.split(":", 1)
+                amounts_dict[parts[0].strip()] = parts[1].strip()
+
+    # Split the ingredients string back into a clean list of keys.
+    ingredient_keys = [piece.strip() for piece in recipe["ingredients"].split(",")]
+
+    # Sort each ingredient into one of two or three groups depending on
+    # whether the caller passed selected_keys (search page) or not (history).
+    group_have = []      # only used when selected_keys is provided
+    group_pantry = []
+    group_missing = []
+
+    for key in ingredient_keys:
+        if selected_keys is not None and key in selected_keys:
+            group_have.append(key)
+        elif key in base_ingredients:
+            group_pantry.append(key)
+        else:
+            group_missing.append(key)
+
+    # Small inner helper to render one coloured group at a time. Keeps the
+    # three (or two) display blocks below short and identical-looking.
+    def render_group(keys, header, colour):
+        if not keys:
+            return
+        st.markdown(header)
+        for key in keys:
+            display = ingredient_dictionary.get(key, key)
+            amount = amounts_dict.get(key, "as needed")
+            st.markdown(
+                f"<span style='color:{colour}'>• **{display}** — {amount}</span>",
+                unsafe_allow_html=True,
+            )
+
+    st.subheader("🛒 Ingredients for 2 portions")
+
+    # The "have" group only exists in search-page mode (selected_keys given).
+    if selected_keys is not None:
+        render_group(group_have,    "✅ **You have these ingredients:**",            "#00cc00")
+        render_group(group_pantry,  "🏠 **Basic pantry items (assumed at home):**", "#888888")
+        render_group(group_missing, "🛒 **These ingredients are still missing:**",  "#ff8800")
+        # Encouraging success message — only meaningful on the search page,
+        # where "missing" actually reflects what the user has at home.
+        if not group_missing:
+            st.success("You have all the ingredients at home!")
+    else:
+        render_group(group_pantry,  "🏠 **Basic pantry items (assumed at home):**", "#888888")
+        render_group(group_missing, "🛒 **Ingredients you will need:**",            "#ff8800")
+
+
 # NAVIGATION
 # Top header plus a sidebar radio menu. The chosen `page` value drives the
 # if/elif blocks below to decide which page to render.
@@ -329,66 +406,11 @@ if page == "🥕 Enter Ingredients":
                     # Each ingredient is sorted into one of three groups
                     # (have / pantry / missing) for colour-coded display.
 
-                    # Translate ingredient key to readable name (fallback = key itself).
-                    def ingredient_name(key):
-                        return ingredient_dictionary.get(key, key)
-
-                    # Build {key: amount} dictionary from the "amounts" string,
-                    # which is stored as "key:amount,key:amount,...".
-                    amounts_dict = {}
-                    if recipe.get("amounts"):
-                        for entry_amt in recipe["amounts"].split(","):
-                            if ":" in entry_amt:
-                                parts = entry_amt.split(":", 1)
-                                amounts_dict[parts[0].strip()] = parts[1].strip()
-
-                    # Sort ingredients into three groups for colour-coded display:
-                    #   have    = user already selected this ingredient
-                    #   pantry  = assumed to be at home (salt, oil, ...)
-                    #   missing = user still needs to buy this
-                    ingredient_keys = []
-                    for piece in recipe["ingredients"].split(","):
-                        cleaned = piece.strip()
-                        ingredient_keys.append(cleaned)
-
-                    group_have = []
-                    group_pantry = []
-                    group_missing = []
-
-                    for key in ingredient_keys:
-                        if key in selected_keys:
-                            group_have.append(key)
-                        elif key in base_ingredients:
-                            group_pantry.append(key)
-                        else:
-                            group_missing.append(key)
-
-                    # Display the three groups with green / grey / orange colour coding.
-                    st.subheader("🛒 Ingredients for 2 portions")
-
-                    if group_have:
-                        st.markdown("✅ **You have these ingredients:**")
-                        for key in group_have:
-                            display = ingredient_name(key)
-                            amount = amounts_dict.get(key, "as needed")
-                            st.markdown(f"<span style='color:#00cc00'>• **{display}** — {amount}</span>", unsafe_allow_html=True)
-
-                    if group_pantry:
-                        st.markdown("🏠 **Basic pantry items (assumed at home):**")
-                        for key in group_pantry:
-                            display = ingredient_name(key)
-                            amount = amounts_dict.get(key, "as needed")
-                            st.markdown(f"<span style='color:#888888'>• **{display}** — {amount}</span>", unsafe_allow_html=True)
-
-                    if group_missing:
-                        st.markdown("🛒 **These ingredients are still missing:**")
-                        for key in group_missing:
-                            display = ingredient_name(key)
-                            amount = amounts_dict.get(key, "as needed")
-                            st.markdown(f"<span style='color:#ff8800'>• **{display}** — {amount}</span>", unsafe_allow_html=True)
-
-                    if not group_missing:
-                        st.success("You have all the ingredients at home!")
+                    # Render ingredients via the shared helper. Passing
+                    # selected_keys enables 3-group mode (have/pantry/missing
+                    # with the green tick group) plus the success message
+                    # when nothing is missing.
+                    render_recipe_ingredients(recipe, selected_keys=selected_keys)
 
                     st.divider()
 
@@ -502,46 +524,10 @@ elif page == "📖 History and Recommendations":
                     with col_c:
                         st.metric("Calories", f"{rec['calories']} kcal")
 
-                    # Build {key: amount} dict (same logic as on the search page).
-                    amounts_dict_rec = {}
-                    if rec.get("amounts"):
-                        for entry_amt in rec["amounts"].split(","):
-                            if ":" in entry_amt:
-                                parts = entry_amt.split(":", 1)
-                                amounts_dict_rec[parts[0].strip()] = parts[1].strip()
-
-                    # On the History page the user did not enter their
-                    # current ingredients, so we only have two groups:
-                    # pantry staples (grey) and everything else (orange).
-                    ingredient_keys_rec = []
-                    for piece in rec["ingredients"].split(","):
-                        cleaned = piece.strip()
-                        ingredient_keys_rec.append(cleaned)
-
-                    group_pantry_rec = []
-                    group_missing_rec = []
-
-                    for key in ingredient_keys_rec:
-                        if key in base_ingredients:
-                            group_pantry_rec.append(key)
-                        else:
-                            group_missing_rec.append(key)
-
-                    st.subheader("🛒 Ingredients for 2 portions")
-
-                    if group_pantry_rec:
-                        st.markdown("🏠 **Basic pantry items (assumed at home):**")
-                        for key in group_pantry_rec:
-                            display = ingredient_dictionary.get(key, key)
-                            amount = amounts_dict_rec.get(key, "as needed")
-                            st.markdown(f"<span style='color:#888888'>• **{display}** — {amount}</span>", unsafe_allow_html=True)
-
-                    if group_missing_rec:
-                        st.markdown("🛒 **Ingredients you will need:**")
-                        for key in group_missing_rec:
-                            display = ingredient_dictionary.get(key, key)
-                            amount = amounts_dict_rec.get(key, "as needed")
-                            st.markdown(f"<span style='color:#ff8800'>• **{display}** — {amount}</span>", unsafe_allow_html=True)
+                    # Render ingredients via the shared helper. No
+                    # selected_keys here, because on the History page the
+                    # user did not enter what they currently have at home.
+                    render_recipe_ingredients(rec)
 
                     # Instructions come from TheMealDB (loaded via api_loader.py).
                     st.divider()
@@ -595,46 +581,9 @@ elif page == "📖 History and Recommendations":
                     with col_c:
                         st.metric("Calories", f"{rec['calories']} kcal")
 
-                    # Build {key: amount} dict (same logic as on the search page).
-                    amounts_dict_rec = {}
-                    if rec.get("amounts"):
-                        for entry_amt in rec["amounts"].split(","):
-                            if ":" in entry_amt:
-                                parts = entry_amt.split(":", 1)
-                                amounts_dict_rec[parts[0].strip()] = parts[1].strip()
-
-                    # On the History page the user did not enter their
-                    # current ingredients, so we only have two groups:
-                    # pantry staples (grey) and everything else (orange).
-                    ingredient_keys_rec = []
-                    for piece in rec["ingredients"].split(","):
-                        cleaned = piece.strip()
-                        ingredient_keys_rec.append(cleaned)
-
-                    group_pantry_rec = []
-                    group_missing_rec = []
-
-                    for key in ingredient_keys_rec:
-                        if key in base_ingredients:
-                            group_pantry_rec.append(key)
-                        else:
-                            group_missing_rec.append(key)
-
-                    st.subheader("🛒 Ingredients for 2 portions")
-
-                    if group_pantry_rec:
-                        st.markdown("🏠 **Basic pantry items (assumed at home):**")
-                        for key in group_pantry_rec:
-                            display = ingredient_dictionary.get(key, key)
-                            amount = amounts_dict_rec.get(key, "as needed")
-                            st.markdown(f"<span style='color:#888888'>• **{display}** — {amount}</span>", unsafe_allow_html=True)
-
-                    if group_missing_rec:
-                        st.markdown("🛒 **Ingredients you will need:**")
-                        for key in group_missing_rec:
-                            display = ingredient_dictionary.get(key, key)
-                            amount = amounts_dict_rec.get(key, "as needed")
-                            st.markdown(f"<span style='color:#ff8800'>• **{display}** — {amount}</span>", unsafe_allow_html=True)
+                    # Render ingredients via the shared helper (same as
+                    # the section above — see render_recipe_ingredients).
+                    render_recipe_ingredients(rec)
 
                     # Instructions come from TheMealDB (loaded via api_loader.py).
                     st.divider()
