@@ -778,15 +778,22 @@ elif page == "📊 Statistics":
             all_dates.append(d)
             d += datetime.timedelta(days=1)
 
-        # Per-day CO2 values + running cumulative total. The cumulative line
-        # stays flat on days where nothing was cooked, which visually shows
-        # the "savings so far" at any point in time.
+        # PER-DAY VALUES (for the bars)
+        # Bars are plotted across the full window — days without any
+        # cooking simply get a height of 0 and don't show up visually,
+        # but they keep the x-axis spread out evenly.
         co2_per_day = [co2_by_date.get(d, 0) for d in all_dates]
-        co2_cumulative = []
+
+        # CUMULATIVE LINE (for the line plot)
+        # Only includes days where the user actually cooked, so the line
+        # connects bar to bar instead of stretching flat across empty
+        # future days. The line therefore stops at the most recent cook.
+        cook_dates = sorted(co2_by_date.keys())
+        cook_cumulative = []
         running_co2 = 0
-        for value in co2_per_day:
-            running_co2 = round(running_co2 + value, 2)
-            co2_cumulative.append(running_co2)
+        for d in cook_dates:
+            running_co2 = round(running_co2 + co2_by_date[d], 2)
+            cook_cumulative.append(running_co2)
 
         # Build the figure: bars first, line on top so it draws over them.
         fig_co2, ax_co2 = plt.subplots(figsize=(9, 3.5))
@@ -800,8 +807,8 @@ elif page == "📊 Statistics":
             label="CO2 per session"
         )
         ax_co2.plot(
-            all_dates,
-            co2_cumulative,
+            cook_dates,
+            cook_cumulative,
             color="#1d6e45",
             linewidth=2,
             marker="o",
@@ -819,7 +826,7 @@ elif page == "📊 Statistics":
         # sessions) and let it grow from there, keeping ~30% headroom
         # above the current cumulative total so the line never touches
         # the top of the chart.
-        current_max = max(co2_cumulative) if co2_cumulative else 0
+        current_max = max(cook_cumulative) if cook_cumulative else 0
         y_max = max(25, current_max * 1.3)
         ax_co2.set_ylim(0, y_max)
 
