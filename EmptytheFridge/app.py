@@ -606,7 +606,7 @@ elif page == "📖 History and Recommendations":
 # Aggregates data from the cooking history into visual statistics:
 #   - Top KPI row: number of recipes, saved CHF, saved ingredients
 #   - Bar+line chart: CO2 saved per session and cumulatively (matplotlib)
-#   - Radar chart : nutritional values for everything cooked TODAY (matplotlib)
+#   - Radar chart: nutritional values for everything cooked TODAY (matplotlib)
 # -----------------------------------------------------------------------------
 
 # Only when the user has selected "📊 Statistics" in the navigation bar does 
@@ -618,7 +618,7 @@ elif page == "📊 Statistics":
     history = load_history()
 
     # If there is no history yet, all charts and metrics would be empty,
-    # so we just show a friendly hint instead.
+    # so we show a warning instead.
     if len(history) == 0:
         st.info("No statistics available yet. Cook some recipes first!")
     else:
@@ -648,10 +648,8 @@ elif page == "📊 Statistics":
         total_costs = round(total_costs, 2)
         num_saved_ingredients = len(saved_ingredients_set)
 
-        # Three-column KPI row at the top of the page.
-        # Saved CO2 is intentionally NOT shown here because the
-        # "CO2 Savings Over Time" chart further down already
-        # visualises this value (both per session and cumulatively).
+        # Three-column KPI row at the top of the page:
+        # Number of recipes, saved CHF, saved ingredients.
         col1, col2, col3 = st.columns(3)
 
         with col1:
@@ -690,9 +688,7 @@ elif page == "📊 Statistics":
                 cost = calculate_costs(recipe)
                 session_co2 = round(cost * 0.8, 2)
                 # Convert "YYYY-MM-DD" strings into real date objects so the
-                # x-axis can treat them as a continuous time scale rather
-                # than as discrete category labels (which is what made the
-                # old chart look like one giant box for a single entry).
+                # x-axis can treat them as a continuous time scale.
                 date_obj = datetime.datetime.strptime(entry["date"], "%Y-%m-%d").date()
                 co2_by_date[date_obj] = co2_by_date.get(date_obj, 0) + session_co2
 
@@ -710,9 +706,7 @@ elif page == "📊 Statistics":
         )
 
         # Build the full continuous list of dates from anchor to window end.
-        # Days without any cooking are still on the x-axis (with bar height 0)
-        # which is what spreads the chart out and gets rid of the "one giant
-        # box" look from the old version.
+        # Days without any cooking are still on the x-axis (with bar height 0).
         all_dates = []
         d = first_date
         while d <= window_end:
@@ -720,15 +714,14 @@ elif page == "📊 Statistics":
             d += datetime.timedelta(days=1)
 
         # PER-DAY VALUES (for the bars)
-        # Bars are plotted across the full window — days without any
+        # Bars are plotted across the full window. Days without any
         # cooking simply get a height of 0 and don't show up visually,
         # but they keep the x-axis spread out evenly.
         co2_per_day = [co2_by_date.get(d, 0) for d in all_dates]
 
         # CUMULATIVE LINE (for the line plot)
         # Only includes days where the user actually cooked, so the line
-        # connects bar to bar instead of stretching flat across empty
-        # future days. The line therefore stops at the most recent cook.
+        # connects bar to bar.
         cook_dates = sorted(co2_by_date.keys())
         cook_cumulative = []
         running_co2 = 0
@@ -761,12 +754,8 @@ elif page == "📊 Statistics":
         ax_co2.legend(loc="upper left")
 
         # Y-AXIS RANGE
-        # Without this, matplotlib would auto-fit the axis to the tallest
-        # bar — so a single 8 kg bar on day 1 would fill the entire chart.
-        # Instead we set a minimum ceiling of 25 kg (room for ~5 cooking
-        # sessions) and let it grow from there, keeping ~30% headroom
-        # above the current cumulative total so the line never touches
-        # the top of the chart.
+        # Use a minimum ceiling of 25 kg, with ~30% headroom above the
+        # current cumulative total for visual appeal.
         current_max = max(cook_cumulative) if cook_cumulative else 0
         y_max = max(25, current_max * 1.3)
         ax_co2.set_ylim(0, y_max)
