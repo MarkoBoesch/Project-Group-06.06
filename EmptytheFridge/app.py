@@ -474,6 +474,11 @@ elif page == "📖 History and Recommendations":
     # ingredient matrix for all recipes and uses cosine similarity to
     # find recipes similar to the user's most recent cook.
 
+    # Track which recipe IDs are shown in this first section so that the
+    # second section (rating-based) can exclude them and avoid duplicates.
+    # Initialised here so it's always defined, even when section 1 is empty.
+    shown_ids = []
+
     st.divider()
     st.subheader("🍳 Recommendations of similar recipes")
     st.caption("Personalised suggestions calculated with machine learning based on your cooking history.")
@@ -486,6 +491,10 @@ elif page == "📖 History and Recommendations":
         if not recommendations:
             st.info("No recommendations available yet.")
         else:
+            # Remember which IDs we are about to display so the next section
+            # can skip them.
+            shown_ids = [rec["id"] for rec in recommendations]
+
             # Render each recommendation in its own expander, similar
             # to the search results page.
             for rec in recommendations:
@@ -555,22 +564,24 @@ elif page == "📖 History and Recommendations":
                         st.success(f"'{rec_name}' added to your cooking history!")
                         st.rerun()
 
-    # ML RECOMMENDATIONS — BECAUSE YOU LIKED IT LAST TIME (BASED ON RATING)
+    # ML RECOMMENDATIONS — BECAUSE YOU LIKED IT LAST TIME (BASED ON RATINGS)
     # calculate_recommendations_by_rating() reuses the same cosine-similarity
-    # logic, but takes the user's HIGHEST-RATED recipe as the reference vector
-    # instead of the most recently cooked one. If the user has not cooked or
-    # rated anything yet, the function returns an empty list so we can show
-    # a warning here.
+    # logic, but builds a "user taste profile" as a WEIGHTED MEAN of all rated
+    # recipe vectors (rating used as the weight). It then compares that
+    # profile to every recipe. If the user has not cooked or rated anything
+    # yet, the function returns an empty list so we can show a warning here.
+    # We also pass shown_ids so the recipes already displayed in the section
+    # above are excluded -- otherwise the two sections would often overlap.
 
     st.divider()
     st.subheader("⭐ Because you liked it last time")
-    st.caption("Recipes similar to the one you rated highest in your cooking history.")
+    st.caption("Recipes that match your taste profile, weighted by the ratings you gave to past meals.")
 
     if len(history) == 0:
         st.warning("You have to cook a recipe first before a recommendation can be given here.")
     else:
         rated_recommendations = calculate_recommendations_by_rating(
-            history, all_recipes, num_recommendations=4
+            history, all_recipes, num_recommendations=4, exclude_ids=shown_ids
         )
 
         if not rated_recommendations:
