@@ -1,11 +1,11 @@
-# database.py
+# db.py
 # Sets up the SQLite database and saves/loads all data for the app.
 #
 #
 # What this file does:
 # - Creates the three tables the app needs: recipes, ingredients, history.
 # - Seeds the ingredients table with the starter display names from
-#   recipes.py so the search-page multiselect is never empty even before
+#   constants.py so the search-page multiselect is never empty even before
 #   any API recipes are loaded.
 # - Provides the read functions used everywhere in the app to fetch
 #   recipes, ingredients and the cooking history.
@@ -14,7 +14,7 @@
 #
 # The recipes table itself is filled exclusively by api_loader.py, which
 # fetches data from TheMealDB. This file does NOT load any hardcoded
-# recipes — recipes.py is now only used for lookup tables (display names,
+# recipes — constants.py is only used for lookup tables (display names,
 # diet sets, prices, base ingredients).
 #
 # We use SQLite because it is built directly into Python (no installation
@@ -142,7 +142,7 @@ def create_database():
 
 
 # SEED INGREDIENT DICTIONARY
-# Fills the ingredients table with the starter display names from recipes.py
+# Fills the ingredients table with the starter display names from constants.py
 # on the first run. We do this so that the multiselect on the search page
 # already has friendly names like "Bell Pepper" available. api_loader.py
 # adds more ingredients on top whenever a new API recipe introduces one.
@@ -151,13 +151,13 @@ def create_database():
 # from TheMealDB via api_loader.py.
 
 def seed_ingredients():
-    """Fills the ingredients table from recipes.py on the first run."""
+    """Fills the ingredients table from constants.py on the first run."""
 
     # Imported here (inside the function) instead of at the top of the file
-    # to avoid a circular import: recipes.py is a pure data file, but
+    # to avoid a circular import: constants.py is a pure data file, but
     # importing it eagerly would couple the database setup to the data
     # module load order.
-    from recipes import ingredient_dictionary
+    from constants import ingredient_dictionary
 
     connection = get_connection()
     cursor = connection.cursor()
@@ -169,7 +169,7 @@ def seed_ingredients():
     count = cursor.fetchone()[0]
 
     if count == 0:
-        # ingredient_dictionary is a {key: display_name} mapping in recipes.py.
+        # ingredient_dictionary is a {key: display_name} mapping in constants.py.
         # We unpack it row by row into the ingredients table.
         for key, name in ingredient_dictionary.items():
             cursor.execute("""
@@ -287,7 +287,7 @@ def update_rating(history_id, rating):
 
 
 # AUTOMATIC SETUP ON IMPORT
-# These two calls run the moment any other file does `from database import ...`.
+# These two calls run the moment any other file does `from db import ...`.
 # That means by the time app.py reaches its first line of UI code, the
 # database file exists, the tables are in place, and the ingredient
 # dictionary is seeded. api_loader.py then fills the recipes table from

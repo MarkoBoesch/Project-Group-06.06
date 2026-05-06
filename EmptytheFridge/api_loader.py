@@ -28,7 +28,7 @@ import requests
 
 import sqlite3
 # sqlite3 is built into Python and lets us read/write the local recipe database.
-# We open our own connections here instead of importing from database.py to
+# We open our own connections here instead of importing from db.py to
 # keep this file self-contained and avoid circular imports.
 
 DB_NAME = "emptythefridge.db"
@@ -189,7 +189,7 @@ def make_display_name(ingredient_key):
 # REGISTER INGREDIENTS
 #
 # The ingredients table is what populates the ingredient selector on the
-# "Enter Ingredients" page in app.py. database.py seeds the table with a
+# "Enter Ingredients" page in app.py. db.py seeds the table with a
 # starter set of display names. Whenever an API recipe brings in a new
 # ingredient that isn't in that starter set, we register it here so users
 # can actually select it in the multiselect.

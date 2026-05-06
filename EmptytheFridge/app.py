@@ -15,9 +15,10 @@
 import streamlit as st
 import datetime
 import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
 
 # Database functions: read recipes/ingredients/history and write history/ratings.
-from database import (
+from db import (
     load_all_recipes,
     load_recipe,
     load_all_ingredients,
@@ -28,7 +29,7 @@ from database import (
 # Machine-learning recommendation logic (cosine similarity on ingredient vectors).
 from recommender import calculate_recommendations, calculate_recommendations_by_rating
 # Static data: pantry staples, diet filters, CHF prices, display name dictionary.
-from recipes import base_ingredients, INGREDIENT_VALUE_CHF, NON_VEGAN_INGREDIENTS, NON_VEGETARIAN_INGREDIENTS, ingredient_dictionary
+from constants import base_ingredients, INGREDIENT_VALUE_CHF, NON_VEGAN_INGREDIENTS, NON_VEGETARIAN_INGREDIENTS, ingredient_dictionary
 # Loader that pulls all recipes from TheMealDB API into our local database.
 from api_loader import load_api_recipes
 
@@ -298,7 +299,6 @@ if page == "🥕 Enter Ingredients":
             # triggered by other widgets (e.g. "Mark as Cooked").
             st.session_state.search_results = matching_recipes
             st.session_state.show_results = True
-            st.session_state.my_ingredients = selected_keys
 
     # SHOW RESULTS
     # Renders each matching recipe as a collapsible expander containing
@@ -738,35 +738,69 @@ elif page == "📊 Statistics":
         st.subheader("🌱 CO2 Savings Over Time")
         st.caption("CO2 saved per cooking session (bars) and cumulative total (line).")
 
-        # Loop through history once and build three parallel lists:
-        # date labels, per-session CO2 values, and a running cumulative sum.
-        co2_dates = []
-        co2_per_session = []
-        co2_cumulative = []
-        running_co2 = 0
-
+        # AGGREGATE BY DATE
+        # Multiple cooking sessions on the same day get summed into a single
+        # bar so we don't end up with overlapping bars at the same x-position.
+        # We use a {date_object: total_co2} dict for easy summing.
+        co2_by_date = {}
         for entry in history:
             recipe = load_recipe(entry["recipe_id"])
             if recipe:
                 cost = calculate_costs(recipe)
                 session_co2 = round(cost * 0.8, 2)
-                running_co2 = round(running_co2 + session_co2, 2)
-                co2_dates.append(entry["date"])
-                co2_per_session.append(session_co2)
-                co2_cumulative.append(running_co2)
+                # Convert "YYYY-MM-DD" strings into real date objects so the
+                # x-axis can treat them as a continuous time scale rather
+                # than as discrete category labels (which is what made the
+                # old chart look like one giant box for a single entry).
+                date_obj = datetime.datetime.strptime(entry["date"], "%Y-%m-%d").date()
+                co2_by_date[date_obj] = co2_by_date.get(date_obj, 0) + session_co2
+
+        # BUILD THE TIME WINDOW
+        # First cook = anchor on the left side. From there we always show
+        # at least 7 days into the future, but if the user has cooked
+        # something further out than that, we extend the window so the
+        # latest entry is visible on the chart.
+        sorted_dates = sorted(co2_by_date.keys())
+        first_date = sorted_dates[0]
+        last_date  = sorted_dates[-1]
+        window_end = max(
+            first_date + datetime.timedelta(days=7),
+            last_date  + datetime.timedelta(days=1),
+        )
+
+        # Build the full continuous list of dates from anchor to window end.
+        # Days without any cooking are still on the x-axis (with bar height 0)
+        # which is what spreads the chart out and gets rid of the "one giant
+        # box" look from the old version.
+        all_dates = []
+        d = first_date
+        while d <= window_end:
+            all_dates.append(d)
+            d += datetime.timedelta(days=1)
+
+        # Per-day CO2 values + running cumulative total. The cumulative line
+        # stays flat on days where nothing was cooked, which visually shows
+        # the "savings so far" at any point in time.
+        co2_per_day = [co2_by_date.get(d, 0) for d in all_dates]
+        co2_cumulative = []
+        running_co2 = 0
+        for value in co2_per_day:
+            running_co2 = round(running_co2 + value, 2)
+            co2_cumulative.append(running_co2)
 
         # Build the figure: bars first, line on top so it draws over them.
-        fig_co2, ax_co2 = plt.subplots(figsize=(8, 3.5))
+        fig_co2, ax_co2 = plt.subplots(figsize=(9, 3.5))
 
         ax_co2.bar(
-            co2_dates,
-            co2_per_session,
+            all_dates,
+            co2_per_day,
             color="#3d9a6e",
-            alpha=0.65,
+            alpha=0.7,
+            width=0.8,  # narrower bars so single entries don't span the chart
             label="CO2 per session"
         )
         ax_co2.plot(
-            co2_dates,
+            all_dates,
             co2_cumulative,
             color="#1d6e45",
             linewidth=2,
@@ -777,8 +811,15 @@ elif page == "📊 Statistics":
 
         ax_co2.set_ylabel("kg CO2")
         ax_co2.legend(loc="upper left")
-        # Rotate x-tick labels so dates don't overlap when there are many.
+
+        # Format the x-axis as proper dates. The locator picks roughly 8
+        # tick labels regardless of how wide the window grows, so a 7-day
+        # chart shows every day while a 60-day chart shows every ~week.
+        ax_co2.xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m-%d"))
+        tick_step = max(1, len(all_dates) // 8)
+        ax_co2.xaxis.set_major_locator(mdates.DayLocator(interval=tick_step))
         plt.setp(ax_co2.get_xticklabels(), rotation=30, ha="right")
+
         fig_co2.tight_layout()
 
         st.pyplot(fig_co2)

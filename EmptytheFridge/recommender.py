@@ -13,7 +13,6 @@
 # Used by app.py on:
 #   - the "History and Recommendations" page (calculate_recommendations,
 #     calculate_recommendations_by_rating)
-#   - the recipe detail view ("You might also like...", similar_recipes)
 # -----------------------------------------------------------------------------
 
 from sklearn.metrics.pairwise import cosine_similarity
@@ -345,48 +344,3 @@ def calculate_recommendations_by_rating(history_list, all_recipes, num_recommend
                 break
 
     return recommendations
-
-
-# SIMILAR RECIPES
-# Used on the recipe detail page ("You might also like..."). Takes a single
-# recipe ID and returns a few recipes whose ingredient pattern is closest to it.
-
-def similar_recipes(recipe_id, all_recipes, count=3):
-    """
-    Finds recipes similar to a specific recipe.
-    Used on the recipe detail page.
-    """
-
-    all_ingredient_keys = []
-    for recipe in all_recipes:
-        for ingredient in recipe["ingredients"].split(","):
-            ingredient = ingredient.strip()
-            if ingredient not in all_ingredient_keys:
-                all_ingredient_keys.append(ingredient)
-
-    number_table = recipes_to_numbers(all_recipes, all_ingredient_keys)
-
-    target_index = None
-    for i, recipe in enumerate(all_recipes):
-        if recipe["id"] == recipe_id:
-            target_index = i
-            break
-
-    if target_index is None:
-        return []
-
-    similarities = cosine_similarity(
-        [number_table[target_index]],
-        number_table
-    )[0]
-
-    sorted_indices = np.argsort(similarities)[::-1]
-
-    similar = []
-    for index in sorted_indices:
-        if all_recipes[index]["id"] != recipe_id:
-            similar.append(all_recipes[index])
-        if len(similar) >= count:
-            break
-
-    return similar

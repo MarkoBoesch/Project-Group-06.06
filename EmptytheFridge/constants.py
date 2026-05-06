@@ -1,4 +1,4 @@
-# recipes.py
+# constants.py
 # Static lookup tables used across the app.
 #
 #
@@ -22,7 +22,7 @@
 #   - the Enter Ingredients page (base_ingredients, NON_VEGAN/VEGETARIAN
 #     for the diet filter, ingredient_dictionary for display names)
 #   - the Statistics page (INGREDIENT_VALUE_CHF for the cost calculation)
-# Used by database.py on:
+# Used by db.py on:
 #   - first run, to seed the ingredients table with these starter
 #     display names so the multiselect on the search page is never empty.
 # -----------------------------------------------------------------------------
@@ -117,7 +117,7 @@ INGREDIENT_VALUE_CHF = {
 # "bell_pepper" in another), but the user only ever sees the values from
 # this dictionary in the multiselect dropdown and on recipe cards.
 #
-# database.py loads this dictionary into the `ingredients` table on first
+# db.py loads this dictionary into the `ingredients` table on first
 # run as a starter set, and api_loader.py adds more entries on top whenever
 # it imports new recipes from TheMealDB.
 
