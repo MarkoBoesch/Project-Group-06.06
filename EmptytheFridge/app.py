@@ -26,7 +26,7 @@ from database import (
     update_rating
 )
 # Machine-learning recommendation logic (cosine similarity on ingredient vectors).
-from recommender import calculate_recommendations, similar_recipes
+from recommender import calculate_recommendations
 # Static data: pantry staples, diet filters, CHF prices, display name dictionary.
 from recipes import base_ingredients, INGREDIENT_VALUE_CHF, NON_VEGAN_INGREDIENTS, NON_VEGETARIAN_INGREDIENTS, ingredient_dictionary
 # Loader that pulls extra recipes from TheMealDB API into our local database.
