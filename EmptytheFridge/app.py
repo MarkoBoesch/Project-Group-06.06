@@ -285,11 +285,14 @@ if page == "🥕 Enter Ingredients":
                         "missing": missing_ingredients
                     })
 
-            # Sort by fewest missing ingredients first (= "easiest to cook now").
-            def by_missing(entry):
-                return entry["missing"]
+            # Sort by most matching ingredients first.
+            # Primary sort: how many of the user's selected ingredients the recipe uses (more = better).
+            # Tiebreaker: how many ingredients are still missing (fewer = better).
+            # The minus sign on "present" flips it so that higher numbers sort to the top.
+            def by_best_match(entry):
+                return (-entry["present"], entry["missing"])
 
-            matching_recipes.sort(key=by_missing)
+            matching_recipes.sort(key=by_best_match)
 
             # Persist results in session_state so they survive reruns
             # triggered by other widgets (e.g. "Mark as Cooked").
