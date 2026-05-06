@@ -5,9 +5,9 @@
 # - Sets up the page configuration
 # - Loads recipes from TheMealDB API on the first run
 # - Routes the user between the three main pages:
-#       1. Enter Ingredients  (find recipes based on what you have at home)
-#       2. History            (cooked recipes + ML-based recommendations)
-#       3. Statistics         (cost / CO2 / nutrition overview)
+#       1. Enter Ingredients       (find recipes based on what you have at home)
+#       2. History and Recommendations   (cooked recipes + ML-based recommendations)
+#       3. Statistics              (cost / CO2 / nutrition overview)
 #
 # To start the app, type in the terminal: streamlit run app.py
 # -----------------------------------------------------------------------------
@@ -26,7 +26,7 @@ from db import (
     save_history,
     update_rating
 )
-# Machine-learning recommendation logic (cosine similarity on ingredient vectors).
+# Machine-learning recommendation logic.
 from recommender import calculate_recommendations, calculate_recommendations_by_rating
 # Static data: pantry staples, diet filters, CHF prices, display name dictionary.
 from constants import base_ingredients, INGREDIENT_VALUE_CHF, NON_VEGAN_INGREDIENTS, NON_VEGETARIAN_INGREDIENTS, ingredient_dictionary
@@ -254,14 +254,7 @@ if page == "🥕 Enter Ingredients":
                 # ingredients the user has, and how many are still missing
                 # (pantry staples like salt/oil are assumed to be at home
                 # and are excluded from the missing count).
-                #
-                # WHY .strip() IS IMPORTANT HERE:
-                # Hardcoded recipes store ingredients as clean keys ("potato").
-                # API recipes are built by joining a list with ",".join(), which
-                # can occasionally leave a leading/trailing space around a key
-                # depending on what TheMealDB returned. Without .strip() those
-                # keys would never match the user's selection and API recipes
-                # would always show 0 present ingredients and be filtered out.
+
                 recipe_ingredients = [i.strip() for i in recipe["ingredients"].split(",")]
 
                 # Count how many of the user's selected ingredients appear in this recipe.
@@ -289,7 +282,6 @@ if page == "🥕 Enter Ingredients":
             # Sort by most matching ingredients first.
             # Primary sort: how many of the user's selected ingredients the recipe uses (more = better).
             # Tiebreaker: how many ingredients are still missing (fewer = better).
-            # The minus sign on "present" flips it so that higher numbers sort to the top.
             def by_best_match(entry):
                 return (-entry["present"], entry["missing"])
 
@@ -566,12 +558,12 @@ elif page == "📖 History and Recommendations":
 
     # ML RECOMMENDATIONS — BECAUSE YOU LIKED IT LAST TIME (BASED ON RATINGS)
     # calculate_recommendations_by_rating() reuses the same cosine-similarity
-    # logic, but builds a "user taste profile" as a WEIGHTED MEAN of all rated
+    # logic, but builds a "user taste profile" as a weighted mean of all rated
     # recipe vectors (rating used as the weight). It then compares that
     # profile to every recipe. If the user has not cooked or rated anything
     # yet, the function returns an empty list so we can show a warning here.
-    # We also pass shown_ids so the recipes already displayed in the section
-    # above are excluded -- otherwise the two sections would often overlap.
+    # We also pass shown_ids so the recipes already displayed in the section 
+    # above are excluded, preventing the two sections from overlapping.
 
     st.divider()
     st.subheader("⭐ Because you liked it last time")
@@ -585,7 +577,7 @@ elif page == "📖 History and Recommendations":
         )
 
         if not rated_recommendations:
-            # History exists, but no rating saved yet -> ask the user to rate.
+            # History exists, but no rating saved yet. First, the user is asked to rate.
             st.warning("You have to rate your meals first before a recommendation can be given here.")
         else:
             # Same expander layout as the section above, just a different
