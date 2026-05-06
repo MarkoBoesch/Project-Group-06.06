@@ -12,6 +12,9 @@
 # - Registers every ingredient that appears in API recipes in the ingredients
 #   table so users can actually select them in the search page.
 #
+# This is the ONLY source of recipes in the app. The recipes table is empty
+# until this file fills it on the first run.
+#
 # Used by app.py on:
 #   - the very first start of the app (load_api_recipes), guarded by
 #     st.session_state so it only runs once per session.
@@ -57,45 +60,6 @@ def recipe_exists(api_id):
     result = cursor.fetchone()
     connection.close()
     return result is not None
-
-
-def add_api_columns():
-    """
-    Adds api_id and api_source columns to the recipes table if they don't exist yet.
-    We need these two extra columns to track which recipes came from the API.
-    The try/except simply skips the ALTER TABLE if the columns are already there.
-    """
-    # database.py creates the recipes table without these two columns
-    # (the hardcoded recipes don't need them). We add them on top here so
-    # this file stays the single owner of all "API-related" schema changes.
-    # SQLite has no "ADD COLUMN IF NOT EXISTS", so we just try and catch the
-    # error if the columns already exist on a later run.
-    connection = get_connection()
-    cursor = connection.cursor()
-    try:
-        cursor.execute("ALTER TABLE recipes ADD COLUMN api_id TEXT")
-        cursor.execute("ALTER TABLE recipes ADD COLUMN api_source TEXT")
-        connection.commit()
-    except Exception:
-        pass  # Columns already exist — that is fine, just continue
-    connection.close()
-
-
-def get_next_id():
-    """
-    Returns the next free ID for a new recipe.
-    We start at 1000 so that API recipe IDs never clash with the
-    hardcoded recipe IDs in recipes.py (which are much smaller numbers).
-    """
-    # MAX(id) returns None on an empty table, so we need the explicit check.
-    # Starting API IDs at 1000 also makes them visually distinguishable from
-    # hardcoded recipes when debugging the database directly.
-    connection = get_connection()
-    cursor = connection.cursor()
-    cursor.execute("SELECT MAX(id) FROM recipes")
-    result = cursor.fetchone()[0]
-    connection.close()
-    return 1000 if result is None else result + 1
 
 
 # INGREDIENT TRANSLATION
@@ -207,9 +171,8 @@ def translate_ingredient(ingredient_name):
     name_lower = ingredient_name.lower().strip()
     if name_lower in INGREDIENT_MAPPING:
         return INGREDIENT_MAPPING[name_lower]
-    # Fallback: turn the raw name into a key-shaped string. It won't match
-    # our hardcoded ingredients but will at least be consistent across all
-    # API recipes that use the same name.
+    # Fallback: turn the raw name into a key-shaped string. It will at
+    # least be consistent across all API recipes that use the same name.
     return name_lower.replace(" ", "_").replace("-", "_")
 
 
@@ -226,14 +189,13 @@ def make_display_name(ingredient_key):
 # REGISTER INGREDIENTS
 #
 # The ingredients table is what populates the ingredient selector on the
-# "Enter Ingredients" page in app.py. Hardcoded recipes (from recipes.py)
-# have their ingredients pre-loaded into that table by database.py on
-# first run. API recipes do NOT — so after saving an API recipe we call
-# this function to make sure every ingredient key that appears in API
-# recipes is also listed in the ingredients table.
+# "Enter Ingredients" page in app.py. database.py seeds the table with a
+# starter set of display names. Whenever an API recipe brings in a new
+# ingredient that isn't in that starter set, we register it here so users
+# can actually select it in the multiselect.
 #
-# Without this step, users can never select those ingredients from the
-# multiselect, so API recipes never match a search and stay invisible.
+# Without this step, users could never select API-only ingredients, so
+# those recipes would never match a search and stay invisible.
 
 def register_ingredients(ingredient_keys):
     """
@@ -265,9 +227,8 @@ def register_ingredients(ingredient_keys):
 # ALLERGEN DETECTION
 # TheMealDB does not tag allergens, so we check the ingredient list ourselves
 # against a few hand-picked lists of "ingredients that contain X".
-# The result is a comma-separated string in the same format used by the
-# hardcoded recipes, so the allergen filter on the search page works
-# identically for both kinds of recipes.
+# The result is a comma-separated string used by the allergen filter on
+# the search page.
 
 def detect_allergens(ingredient_keys):
     """Detects allergens based on the ingredients and returns them as a comma-separated string."""
@@ -363,26 +324,24 @@ def estimate_nutrition(ingredient_keys):
 
 # SAVE RECIPE TO DATABASE
 # Inserts one fully-prepared recipe dictionary into the recipes table.
-# Mirrors the INSERT statement in database.py's populate_database(), with
-# two extra columns (api_id, api_source) that only API recipes use.
+# The id column AUTOINCREMENTs, so we don't pass an ID ourselves.
 
 def save_recipe(recipe_data):
     """Saves a single recipe to the database."""
-    # INSERT OR IGNORE protects against a duplicate primary key — if for any
-    # reason get_next_id() returns an ID that's already in use, the row is
-    # silently skipped instead of raising an IntegrityError.
     connection = get_connection()
     cursor = connection.cursor()
+    # INSERT OR IGNORE protects against duplicates via the UNIQUE constraint
+    # on api_id — if for any reason a recipe with the same api_id is already
+    # there, the row is silently skipped instead of raising an IntegrityError.
     cursor.execute("""
         INSERT OR IGNORE INTO recipes (
-            id, name, ingredients, amounts,
+            name, ingredients, amounts,
             time_minutes, difficulty,
             allergens, calories, protein, carbohydrates,
             fat, fiber, vitamins, minerals,
             instructions, api_id, api_source
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
-        recipe_data["id"],
         recipe_data["name"],
         recipe_data["ingredients"],
         recipe_data["amounts"],
@@ -512,7 +471,6 @@ def load_from_themealdb(max_recipes=200):
                 # Build the dictionary in the exact shape that save_recipe()
                 # (and the recipes table) expects.
                 recipe_data = {
-                    "id":            get_next_id(),
                     "name":          meal["strMeal"],
                     "ingredients":   ",".join(ingredient_keys),
                     "amounts":       ",".join(amount_parts) if amount_parts else "",
@@ -554,38 +512,34 @@ def load_from_themealdb(max_recipes=200):
 # MAIN ENTRY POINT
 # Called by app.py once on startup (guarded by st.session_state so it only
 # runs on the very first load, not on every Streamlit rerun). On subsequent
-# starts it sees that API recipes are already in the database and exits
+# starts it sees that recipes are already in the database and exits
 # immediately without making any network calls.
 
 def load_api_recipes():
     """
-    Prepares the database columns and loads API recipes if none exist yet.
+    Loads API recipes if the recipes table is still empty.
     Returns the number of newly loaded recipes (0 if already loaded before).
     """
-    # Make sure the api_id and api_source columns exist before we try to
-    # write to them. Safe to call every time — does nothing if columns
-    # are already present.
-    add_api_columns()
-
-    # Check how many API recipes are already in the database. We use this
-    # as the signal for "have we ever run the importer before?". Counting
-    # by api_source means we only count API recipes, not the hardcoded ones.
+    # Check how many recipes are already in the database. We use this as
+    # the signal for "have we ever run the importer before?". Since the
+    # API is now the only source of recipes, an empty recipes table means
+    # we are on the very first run.
     connection = get_connection()
     cursor = connection.cursor()
-    cursor.execute("SELECT COUNT(*) FROM recipes WHERE api_source = 'TheMealDB'")
-    count_api_recipes = cursor.fetchone()[0]
+    cursor.execute("SELECT COUNT(*) FROM recipes")
+    count = cursor.fetchone()[0]
     connection.close()
 
-    if count_api_recipes == 0:
+    if count == 0:
         # First run: fetch from the API. The print statements show up in
         # the terminal where Streamlit is running and are useful for
         # debugging if the import seems stuck.
         print("Loading recipes from TheMealDB API...")
-        count = load_from_themealdb(max_recipes=200)
-        print(f"{count} recipes loaded from TheMealDB.")
-        return count
+        new_count = load_from_themealdb(max_recipes=200)
+        print(f"{new_count} recipes loaded from TheMealDB.")
+        return new_count
     else:
         # Already loaded on a previous run — nothing to do. Returning 0
         # signals "no new recipes" to the caller in app.py.
-        print(f"TheMealDB recipes already present: {count_api_recipes} recipes.")
+        print(f"Recipes already present: {count} recipes.")
         return 0

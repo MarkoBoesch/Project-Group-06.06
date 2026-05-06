@@ -29,7 +29,7 @@ from database import (
 from recommender import calculate_recommendations, calculate_recommendations_by_rating
 # Static data: pantry staples, diet filters, CHF prices, display name dictionary.
 from recipes import base_ingredients, INGREDIENT_VALUE_CHF, NON_VEGAN_INGREDIENTS, NON_VEGETARIAN_INGREDIENTS, ingredient_dictionary
-# Loader that pulls extra recipes from TheMealDB API into our local database.
+# Loader that pulls all recipes from TheMealDB API into our local database.
 from api_loader import load_api_recipes
 
 # PAGE SETTINGS
@@ -333,7 +333,7 @@ if page == "🥕 Enter Ingredients":
                         st.metric("Calories", f"{recipe['calories']} kcal")
 
                     # INGREDIENTS — static display for 2 portions.
-                    # All amounts in recipes.py are based on 2 portions.
+                    # Amounts come straight from TheMealDB (typically for 2-4 portions).
                     # Each ingredient is sorted into one of three groups
                     # (have / pantry / missing) for colour-coded display.
 
@@ -400,7 +400,7 @@ if page == "🥕 Enter Ingredients":
 
                     st.divider()
 
-                    # Cooking instructions pulled from recipes.py or TheMealDB (loaded via api_loader.py).
+                    # Cooking instructions pulled from TheMealDB (loaded via api_loader.py).
                     st.subheader("👨‍🍳 Instructions")
                     st.write(recipe["instructions"])
 
@@ -551,7 +551,7 @@ elif page == "📖 History and Recommendations":
                             amount = amounts_dict_rec.get(key, "as needed")
                             st.markdown(f"<span style='color:#ff8800'>• **{display}** — {amount}</span>", unsafe_allow_html=True)
 
-                    # Instructions come from recipes.py or TheMealDB (loaded via api_loader.py).
+                    # Instructions come from TheMealDB (loaded via api_loader.py).
                     st.divider()
                     st.subheader("👨\u200d🍳 Instructions")
                     st.write(rec["instructions"])
@@ -644,7 +644,7 @@ elif page == "📖 History and Recommendations":
                             amount = amounts_dict_rec.get(key, "as needed")
                             st.markdown(f"<span style='color:#ff8800'>• **{display}** — {amount}</span>", unsafe_allow_html=True)
 
-                    # Instructions come from recipes.py or TheMealDB (loaded via api_loader.py).
+                    # Instructions come from TheMealDB (loaded via api_loader.py).
                     st.divider()
                     st.subheader("👨\u200d🍳 Instructions")
                     st.write(rec["instructions"])

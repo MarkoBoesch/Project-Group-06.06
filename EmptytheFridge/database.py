@@ -4,13 +4,18 @@
 #
 # What this file does:
 # - Creates the three tables the app needs: recipes, ingredients, history.
-# - Fills the recipes and ingredients tables on the very first run from
-#   the hardcoded data in recipes.py (later, api_loader.py adds more
-#   recipes on top from TheMealDB).
+# - Seeds the ingredients table with the starter display names from
+#   recipes.py so the search-page multiselect is never empty even before
+#   any API recipes are loaded.
 # - Provides the read functions used everywhere in the app to fetch
 #   recipes, ingredients and the cooking history.
 # - Provides the write functions used to log a cooked recipe and to
 #   update its rating afterwards.
+#
+# The recipes table itself is filled exclusively by api_loader.py, which
+# fetches data from TheMealDB. This file does NOT load any hardcoded
+# recipes — recipes.py is now only used for lookup tables (display names,
+# diet sets, prices, base ingredients).
 #
 # We use SQLite because it is built directly into Python (no installation
 # needed) and stores everything in a single file (emptythefridge.db) that
@@ -22,19 +27,14 @@
 #   - the History page (save_history, update_rating) when the user logs
 #     a cooked recipe or rates one.
 # Used by api_loader.py on:
-#   - first start (indirectly), since this file creates the tables that
-#     api_loader.py then writes additional API recipes into.
+#   - every start, since this file creates the recipes table that
+#     api_loader.py writes API recipes into.
 # -----------------------------------------------------------------------------
 
 import sqlite3
 # sqlite3 is built into Python — no pip install needed. It gives us a full
 # SQL database in a single local file, which is perfect for a small app
 # like this one.
-
-import os
-# os is imported for path handling. We don't currently use it, but it's
-# kept here because future features (e.g. resetting the database, checking
-# whether the file exists) typically need it.
 
 DB_NAME = "emptythefridge.db"
 # Single shared filename used by every connection. Defined as a constant
@@ -63,24 +63,27 @@ def create_database():
     cursor = connection.cursor()
 
     # TABLE 1: Recipes
-    # The main table. Each row is one recipe.
-    # - id:             unique primary key (no AUTOINCREMENT because recipes.py
-    #                   provides its own IDs, and api_loader.py picks IDs >= 1000
-    #                   to stay out of the way of the hardcoded ones).
+    # The main table. Each row is one recipe loaded from TheMealDB.
+    # - id:             unique primary key, AUTOINCREMENT so api_loader.py
+    #                   doesn't have to manage IDs itself.
     # - ingredients:    comma-separated list of ingredient keys. We store it
     #                   as a string instead of a separate join table to keep
     #                   the schema simple — the recommender splits it back
     #                   into a list when it needs to.
     # - amounts:        comma-separated "key:amount" pairs (e.g.
-    #                   "potato:200g,onion:1"). Optional — older recipes can
-    #                   leave it empty.
+    #                   "potato:200g,onion:1"). Optional.
     # - allergens:      comma-separated list of allergens, used by the diet
     #                   filter on the search page.
     # - calories ... minerals: nutrition values used by the radar chart on
     #                   the Statistics page.
+    # - api_id:         TheMealDB's own recipe ID. Used by api_loader.py to
+    #                   detect duplicates so re-running the importer doesn't
+    #                   insert the same recipe twice.
+    # - api_source:     name of the API the recipe came from ("TheMealDB").
+    #                   Useful for filtering / debugging.
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS recipes (
-            id                INTEGER PRIMARY KEY,
+            id                INTEGER PRIMARY KEY AUTOINCREMENT,
             name              TEXT NOT NULL,
             ingredients       TEXT NOT NULL,
             amounts           TEXT,
@@ -94,7 +97,9 @@ def create_database():
             fiber             INTEGER,
             vitamins          INTEGER,
             minerals          INTEGER,
-            instructions      TEXT NOT NULL
+            instructions      TEXT NOT NULL,
+            api_id            TEXT UNIQUE,
+            api_source        TEXT
         )
     """)
 
@@ -136,69 +141,34 @@ def create_database():
     connection.close()
 
 
-# POPULATE DATABASE
-# Fills the recipes and ingredients tables with the hardcoded data from
-# recipes.py — but only on the first run. The COUNT(*) check makes sure
-# we don't insert the same recipes again on every app start.
+# SEED INGREDIENT DICTIONARY
+# Fills the ingredients table with the starter display names from recipes.py
+# on the first run. We do this so that the multiselect on the search page
+# already has friendly names like "Bell Pepper" available. api_loader.py
+# adds more ingredients on top whenever a new API recipe introduces one.
+#
+# We deliberately do NOT seed any recipes here — those come exclusively
+# from TheMealDB via api_loader.py.
 
-def populate_database():
-    """Fills the database with recipes from recipes.py. Only runs if the database is empty."""
+def seed_ingredients():
+    """Fills the ingredients table from recipes.py on the first run."""
 
     # Imported here (inside the function) instead of at the top of the file
     # to avoid a circular import: recipes.py is a pure data file, but
     # importing it eagerly would couple the database setup to the data
     # module load order.
-    from recipes import recipes, ingredient_dictionary
+    from recipes import ingredient_dictionary
 
     connection = get_connection()
     cursor = connection.cursor()
 
-    # Only insert recipes if the table is currently empty. This is the
+    # Only insert ingredients if the table is currently empty. This is the
     # "first run" check — on every later start the count is > 0 and we
     # skip the whole block.
-    cursor.execute("SELECT COUNT(*) FROM recipes")
+    cursor.execute("SELECT COUNT(*) FROM ingredients")
     count = cursor.fetchone()[0]
 
     if count == 0:
-        # Insert each recipe from recipes.py one row at a time.
-        # The ingredients list is joined into a comma-separated string
-        # because that is the format the rest of the app expects when
-        # reading from the database.
-        for r in recipes:
-            cursor.execute("""
-                INSERT INTO recipes (
-                    id, name, ingredients, amounts,
-                    time_minutes, difficulty,
-                    allergens, calories, protein, carbohydrates,
-                    fat, fiber, vitamins, minerals,
-                    instructions
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                r["id"],
-                r["name"],
-                ",".join(r["ingredients"]),
-                r["amounts"],
-                r["time_minutes"],
-                r["difficulty"],
-                r["allergens"],
-                r["calories"],
-                r["protein"],
-                r["carbohydrates"],
-                r["fat"],
-                r["fiber"],
-                r["vitamins"],
-                r["minerals"],
-                r["instructions"]
-            ))
-
-    # Same "first run" pattern for the ingredients table. We check it
-    # separately from the recipes table because the two could in theory
-    # get out of sync (e.g. if the recipes insert failed but the
-    # ingredients insert didn't), and this way each one self-heals.
-    cursor.execute("SELECT COUNT(*) FROM ingredients")
-    count_ingredients = cursor.fetchone()[0]
-
-    if count_ingredients == 0:
         # ingredient_dictionary is a {key: display_name} mapping in recipes.py.
         # We unpack it row by row into the ingredients table.
         for key, name in ingredient_dictionary.items():
@@ -319,14 +289,14 @@ def update_rating(history_id, rating):
 # AUTOMATIC SETUP ON IMPORT
 # These two calls run the moment any other file does `from database import ...`.
 # That means by the time app.py reaches its first line of UI code, the
-# database file exists, the tables are in place, and the hardcoded recipes
-# from recipes.py are already loaded. api_loader.py then adds API recipes
-# on top of this baseline.
+# database file exists, the tables are in place, and the ingredient
+# dictionary is seeded. api_loader.py then fills the recipes table from
+# TheMealDB.
 #
 # Both functions are idempotent (safe to call multiple times):
 #   - create_database uses CREATE TABLE IF NOT EXISTS
-#   - populate_database checks COUNT(*) before inserting
+#   - seed_ingredients checks COUNT(*) before inserting
 # so re-running them on every app start has no negative side effects.
 
 create_database()
-populate_database()
+seed_ingredients()
