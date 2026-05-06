@@ -233,7 +233,10 @@ if page == "🥕 Enter Ingredients":
                 # - vegan       = no animal products at all
                 # - vegetarian  = dairy/eggs ok, no meat/fish
                 # - meat        = at least one meat/fish ingredient required
-                recipe_ingredients = recipe["ingredients"].split(",")
+                #
+                # .strip() is used so that API recipe ingredients with
+                # accidental whitespace around the key still match correctly.
+                recipe_ingredients = [i.strip() for i in recipe["ingredients"].split(",")]
                 diet = st.session_state.diet_filter
 
                 if diet == "vegan":
@@ -250,7 +253,15 @@ if page == "🥕 Enter Ingredients":
                 # ingredients the user has, and how many are still missing
                 # (pantry staples like salt/oil are assumed to be at home
                 # and are excluded from the missing count).
-                recipe_ingredients = recipe["ingredients"].split(",")
+                #
+                # WHY .strip() IS IMPORTANT HERE:
+                # Hardcoded recipes store ingredients as clean keys ("potato").
+                # API recipes are built by joining a list with ",".join(), which
+                # can occasionally leave a leading/trailing space around a key
+                # depending on what TheMealDB returned. Without .strip() those
+                # keys would never match the user's selection and API recipes
+                # would always show 0 present ingredients and be filtered out.
+                recipe_ingredients = [i.strip() for i in recipe["ingredients"].split(",")]
 
                 # Count how many of the user's selected ingredients appear in this recipe.
                 present_ingredients = 0
