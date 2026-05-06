@@ -604,7 +604,7 @@ elif page == "📖 History and Recommendations":
 # -----------------------------------------------------------------------------
 # PAGE 3: STATISTICS
 # Aggregates data from the cooking history into visual statistics:
-#   - Top KPI row: number of recipes, saved CHF, saved CO2, saved ingredients
+#   - Top KPI row: number of recipes, saved CHF, saved ingredients
 #   - Bar+line chart: CO2 saved per session and cumulatively (matplotlib)
 #   - Radar chart : nutritional values for everything cooked TODAY (matplotlib)
 # -----------------------------------------------------------------------------
@@ -646,12 +646,13 @@ elif page == "📊 Statistics":
                         saved_ingredients_set.add(ingredient)
 
         total_costs = round(total_costs, 2)
-        # Rough rule-of-thumb: 0.8 kg CO2 saved per CHF of food not wasted.
-        saved_co2 = round(total_costs * 0.8, 1)
         num_saved_ingredients = len(saved_ingredients_set)
 
-        # Four-column KPI row at the top of the page.
-        col1, col2, col3, col4 = st.columns(4)
+        # Three-column KPI row at the top of the page.
+        # Saved CO2 is intentionally NOT shown here because the
+        # "CO2 Savings Over Time" chart further down already
+        # visualises this value (both per session and cumulatively).
+        col1, col2, col3 = st.columns(3)
 
         with col1:
             st.metric("Cooked Recipes", num_recipes)
@@ -662,8 +663,6 @@ elif page == "📊 Statistics":
                 help="Based on the estimated value of the ingredients used."
             )
         with col3:
-            st.metric("🌱 Saved CO2", f"{saved_co2} kg")
-        with col4:
             st.metric(
                 "🧺 Saved Ingredients",
                 num_saved_ingredients,
