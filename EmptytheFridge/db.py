@@ -130,18 +130,28 @@ def create_database():
     #              and rates it later, so it starts as NULL.
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS history (
-            id         INTEGER PRIMARY KEY AUTOINCREMENT,
-            recipe_id  INTEGER NOT NULL,
-            date       TEXT NOT NULL,
-            rating     INTEGER
+            id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+            recipe_id          INTEGER NOT NULL,
+            date               TEXT NOT NULL,
+            rating             INTEGER,
+            used_ingredients   TEXT    -- comma-separated keys the user selected
         )
     """)
 
     connection.commit()
     connection.close()
 
-
-# SEED INGREDIENT DICTIONARY
+    # MIGRATION: add used_ingredients column to existing databases that were
+    # created before this column existed. ALTER TABLE ignores the command if
+    # the column is already present (we catch the OperationalError silently).
+    connection = get_connection()
+    cursor = connection.cursor()
+    try:
+        cursor.execute("ALTER TABLE history ADD COLUMN used_ingredients TEXT")
+        connection.commit()
+    except Exception:
+        pass  # column already exists — nothing to do
+    connection.close()
 # Fills the ingredients table with the starter display names from constants.py
 # on the first run. We do this so that the multiselect on the search page
 # already has friendly names like "Bell Pepper" available. api_loader.py
@@ -241,6 +251,7 @@ def load_history():
     cursor = connection.cursor()
     cursor.execute("""
         SELECT history.id, history.recipe_id, history.date, history.rating,
+               history.used_ingredients,
                recipes.name, recipes.calories
         FROM history
         JOIN recipes ON history.recipe_id = recipes.id
@@ -255,18 +266,20 @@ def load_history():
 # All functions that change data in the database. Both are called from
 # app.py when the user interacts with the History page.
 
-def save_history(recipe_id, date, rating=None):
-    """Saves a cooked recipe to the history."""
-    # Called when the user clicks "I cooked this" on a recipe. The rating
-    # is optional and starts as None — the user typically rates the recipe
-    # later via update_rating(). The id column auto-increments, so we don't
-    # pass an ID ourselves.
+def save_history(recipe_id, date, rating=None, used_ingredients=None):
+    """Saves a cooked recipe to the history.
+
+    used_ingredients: comma-separated string of ingredient keys the user
+    actually selected on the search page (e.g. "chicken_breast,carrot").
+    These are stored so the Statistics page can calculate money saved only
+    for ingredients the user was genuinely trying to use up.
+    """
     connection = get_connection()
     cursor = connection.cursor()
     cursor.execute("""
-        INSERT INTO history (recipe_id, date, rating)
-        VALUES (?, ?, ?)
-    """, (recipe_id, date, rating))
+        INSERT INTO history (recipe_id, date, rating, used_ingredients)
+        VALUES (?, ?, ?, ?)
+    """, (recipe_id, date, rating, used_ingredients))
     connection.commit()
     connection.close()
 

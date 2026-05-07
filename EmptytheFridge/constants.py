@@ -3,13 +3,13 @@
 #
 #
 # What this file does:
-# - Defines `base_ingredients`: pantry staples the search algorithm assumes
-#   are always at home (so the user doesn't have to tick them every time).
+# - Defines `base_ingredients`: spices & oils always assumed to be at home.
+#   These are EXCLUDED from "money saved" calculations — only ingredients
+#   the user actually selected on the search page count toward savings.
 # - Defines `NON_VEGAN_INGREDIENTS` and `NON_VEGETARIAN_INGREDIENTS`: lookup
 #   sets the diet filter on the search page uses to exclude recipes.
-# - Defines `INGREDIENT_VALUE_CHF`: rough Swiss-Franc value per ingredient,
-#   used by the Statistics page to estimate the money saved by cooking
-#   instead of letting food spoil.
+# - Defines `INGREDIENT_PRICE_PER_KG_CHF` / `INGREDIENT_VALUE_CHF`: real
+#   Swiss supermarket prices (Migros/Coop) used by the Statistics page.
 # - Defines `ingredient_dictionary`: maps internal keys (e.g. "bell_pepper")
 #   to readable display names (e.g. "Bell Pepper") shown in the UI.
 #
@@ -36,10 +36,44 @@
 # non-base ingredients count, because using up salt isn't really preventing
 # food waste.
 
+# BASE INGREDIENTS (spices & oils only)
+# Rule: only things that live in the spice rack or oil shelf and are
+# virtually never "used up" or likely to spoil qualify here.
+# Everything else — vegetables, dairy, meat, pasta, eggs, etc. — is a
+# real ingredient that the user selects on the search page.
+#
+# Two consequences of being in this list:
+#   1. The recipe-matching algorithm on the search page treats these as
+#      "always available", so a recipe that needs salt/cumin is never
+#      penalised for the user not ticking those boxes.
+#   2. These are EXCLUDED from the "money saved" calculation on the
+#      Statistics page, because nobody enters salt as a fridge ingredient
+#      they're trying to use up before it spoils.
+
 base_ingredients = [
-    "salt", "pepper", "oil", "butter", "sugar", "flour", "water",
-    "garlic", "onion", "vegetable_broth", "olive_oil", "vinegar",
-    "baking_powder", "baking_soda", "cornstarch"
+    # Oils & vinegars
+    "oil", "olive_oil", "vinegar",
+    # Basic seasonings
+    "salt", "pepper",
+    # Baking fundamentals
+    "sugar", "flour", "baking_powder", "baking_soda", "cornstarch", "water",
+    # Spices & dried herbs
+    "garlic",           # dried / garlic powder (fresh garlic IS selectable)
+    "paprika",
+    "cumin",
+    "cinnamon",
+    "nutmeg",
+    "curry_powder",
+    "chili_flakes",
+    "dried_herbs",      # covers oregano, thyme, basil, rosemary, etc.
+    "bay_leaves",
+    "turmeric",
+    "ginger_powder",    # dried; fresh ginger IS selectable as an ingredient
+    "cayenne",
+    "cloves",
+    "allspice",
+    "cardamom",
+    "coriander_powder",
 ]
 
 # DIET FILTER SETS
@@ -74,42 +108,146 @@ NON_VEGETARIAN_INGREDIENTS = {
     "worcestershire",
 }
 
-# INGREDIENT VALUE TABLE (CHF)
-# Estimated value in Swiss Francs per unit/portion of each ingredient.
-# Used by app.py's calculate_costs() on the Statistics page to estimate how
-# much money was "saved" by cooking a recipe instead of letting the
-# ingredients spoil in the fridge.
+# INGREDIENT PRICE TABLE (CHF per kg or per unit)
+# Real Swiss supermarket prices based on Migros / Coop regular (non-sale) shelf
+# prices as of April / May 2026.  Sources: rappn.ch April 2026 price comparison
+# (migros.ch + coop.ch verified), K-Tipp August 2025, and blick.ch/bonus.ch.
 #
-# The numbers are rough averages from Swiss supermarkets — accurate enough
-# for the savings KPIs on the dashboard without pretending to be a real
-# pricing engine. Ingredients not in this table fall back to 0.50 CHF
-# (handled in app.py via the .get() default).
+# All prices are stored as CHF PER KILOGRAM for weight-sold ingredients, or
+# CHF PER UNIT for piece/portion items (marked with a comment).
+#
+# calculate_costs() in app.py reads the "amounts" field of each recipe
+# (format: "key:200g,key:3,key:0.5kg,...") and multiplies the per-kg price
+# by the actual weight used, giving a proportional cost.  Piece-sold
+# ingredients (eggs, lemons, avocados …) fall back to per-unit pricing when
+# the amounts field contains a plain count (no unit suffix).
+#
+# Ingredients not found here fall back to CHF 3.00/kg in app.py
+# (≈ a mid-range Swiss vegetable), which is intentionally conservative.
 
-INGREDIENT_VALUE_CHF = {
-    "potato": 0.30, "carrot": 0.20, "celery": 0.30, "onion": 0.20,
-    "garlic": 0.10, "tomato": 0.40, "zucchini": 0.50, "bell_pepper": 0.60,
-    "spinach": 0.80, "broccoli": 0.70, "mushroom": 0.80, "leek": 0.60,
-    "cauliflower": 0.70, "cucumber": 0.40, "lettuce": 0.50, "corn": 0.40,
-    "peas": 0.40, "green_beans": 0.50, "eggplant": 0.60, "sweet_potato": 0.50,
-    "chicken_breast": 2.50, "ground_beef": 2.80, "bacon": 1.50, "pork": 2.20,
-    "salmon": 3.50, "tuna": 1.20, "shrimp": 3.00, "egg": 0.40, "milk": 0.20,
-    "butter": 0.30, "cream": 0.60, "cheese": 0.80, "mozzarella": 1.20,
-    "parmesan": 0.90, "yogurt": 0.50, "cream_cheese": 0.70, "pasta": 0.40,
-    "rice": 0.30, "bread": 0.40, "flour": 0.10, "oats": 0.20, "lentils": 0.40,
-    "chickpeas": 0.50, "tomato_sauce": 0.50, "vegetable_broth": 0.20,
-    "olive_oil": 0.20, "oil": 0.10, "soy_sauce": 0.15, "lemon": 0.30,
-    "apple": 0.40, "banana": 0.30, "avocado": 1.20, "feta": 1.00,
-    "ricotta": 0.90, "sour_cream": 0.60, "tofu": 1.50, "asparagus": 1.20,
-    "kale": 0.80, "beetroot": 0.40, "spring_onion": 0.30, "ginger": 0.20,
-    "lime": 0.30, "mango": 1.00, "strawberry": 1.20, "blueberry": 1.50,
-    "raspberry": 1.50, "cherry": 1.20, "peach": 0.80, "pear": 0.50,
-    "pumpkin": 0.60, "white_cabbage": 0.30, "red_cabbage": 0.40,
-    "fennel": 0.80, "lamb": 3.50, "turkey": 2.50, "sausage": 1.50,
-    "ham": 1.20, "prosciutto": 1.80, "cod": 2.50, "coconut_milk": 0.60,
-    "tahini": 0.50, "pesto": 0.70, "dijon_mustard": 0.20, "honey": 0.30,
-    "mayonnaise": 0.20, "hot_sauce": 0.15, "bbq_sauce": 0.30,
-    "worcestershire": 0.15, "heavy_cream": 0.70,
+INGREDIENT_PRICE_PER_KG_CHF = {
+    # ── Vegetables (CHF/kg) ──────────────────────────────────────────────────
+    "potato":        1.60,   # CHF 3.50–4.50 for 2.5 kg bag → ~1.60/kg
+    "sweet_potato":  3.20,
+    "carrot":        1.80,   # Migros Tiefpreis ~1.50–2.00/kg
+    "celery":        3.50,   # bunch ~1.50, ~430g → ~3.50/kg
+    "onion":         1.50,
+    "garlic":        8.00,   # ~1.00 per 125g bulb
+    "tomato":        3.50,   # CHF 2.50–4.50/kg depending on variety
+    "zucchini":      3.20,
+    "bell_pepper":   5.00,   # ~1.50–2.00 per piece, ~300–400g
+    "spinach":       8.00,   # 200g bag ~1.60
+    "broccoli":      3.50,   # ~1 head ~500g → ~2.00 → ~4.00/kg; avg 3.50
+    "mushroom":      9.00,   # 400g ~3.50
+    "leek":          3.50,   # 500g ~1.80
+    "cauliflower":   3.00,   # 800g head ~2.50
+    "cucumber":      2.50,   # ~1.00 per piece, ~400g
+    "lettuce":       4.00,   # 1 head ~200g, ~0.80
+    "corn":          2.50,   # canned 425g ~1.10
+    "peas":          4.00,   # frozen 750g ~3.00
+    "green_beans":   4.50,   # 400g ~1.80
+    "eggplant":      3.50,   # 1 piece ~400g, ~1.40
+    "kale":          7.00,   # 200g bag ~1.40
+    "beetroot":      2.50,   # 500g ~1.25
+    "spring_onion":  5.00,   # bunch ~0.80, ~160g
+    "ginger":       12.00,   # ~1.20 per 100g piece
+    "pumpkin":       2.50,
+    "white_cabbage": 1.50,
+    "red_cabbage":   2.00,
+    "fennel":        3.50,   # 1 bulb ~400g, ~1.40
+    "asparagus":    12.00,   # 500g ~6.00 (CH asparagus)
+
+    # ── Fruits (CHF/kg) ──────────────────────────────────────────────────────
+    "apple":         3.60,   # Migros CH Äpfel ~3.50–3.80/kg
+    "banana":        2.40,   # Migros ~2.20–2.60/kg (Tiefpreis)
+    "mango":         5.00,   # ~2.50 per piece, ~500g
+    "strawberry":    8.00,   # 500g ~4.00
+    "blueberry":    14.00,   # 250g ~3.50
+    "raspberry":    16.00,   # 125g ~2.00
+    "cherry":       10.00,   # 500g ~5.00
+    "peach":         4.00,   # ~1.00 per piece, ~250g
+    "pear":          3.50,
+
+    # ── Meat & Fish (CHF/kg) ─────────────────────────────────────────────────
+    "chicken_breast": 13.80,  # M-Budget ~13.80/kg; Coop Prix Garantie 11.50/kg
+    "ground_beef":   19.50,   # M-Classic ~9.75 per 500g
+    "bacon":         20.00,   # ~5.00 per 200g pack
+    "pork":          18.00,   # pork shoulder/neck typical price
+    "salmon":        39.00,   # fresh fillet ~3.90 per 100g
+    "tuna":          16.00,   # canned 155g ~2.50
+    "shrimp":        30.00,   # frozen 300g ~9.00
+    "lamb":          38.00,
+    "turkey":        15.00,
+    "sausage":       14.00,   # Bratwurst 4-pack M-Budget ~3.80 / ~270g → ~14/kg
+    "ham":           18.00,   # 100g ~1.80
+    "prosciutto":    38.00,   # 100g ~3.80
+    "cod":           28.00,   # fillet ~2.80/100g
+
+    # ── Dairy – UNIT-PRICED items (CHF per standard unit) ───────────────────
+    # These are listed per typical purchase unit; calculate_costs()
+    # will use them when the recipe amounts field gives a plain count.
+    "egg":            0.45,   # 10-pack ~4.50 (Migros M-Budget)
+    "milk":           1.05,   # per litre (M-Budget 2L ~2.05 → 1.03/L)
+    "butter":         2.95,   # per 250g block (M-Budget)
+    "cream":          2.50,   # per 200ml carton
+    "heavy_cream":    4.80,   # per 500ml
+    "cheese":         4.40,   # Emmentaler ~250g block ~4.40
+    "mozzarella":     2.10,   # 150g ball (M-Classic)
+    "parmesan":       3.50,   # 100g grated
+    "yogurt":         0.80,   # 500g M-Budget nature
+    "cream_cheese":   2.20,   # 200g
+    "feta":           3.20,   # 200g pack
+    "ricotta":        2.50,   # 250g
+    "sour_cream":     1.80,   # 200g
+
+    # ── Dairy – also provide per-kg fallback ─────────────────────────────────
+    # (used when amounts are given in grams)
+    "butter_kg":     11.80,   # CHF 2.95 per 250g
+    "cheese_kg":     17.60,   # CHF 4.40 per 250g
+    "mozzarella_kg": 14.00,
+    "parmesan_kg":   35.00,
+    "yogurt_kg":      1.60,
+    "cream_cheese_kg": 11.00,
+    "feta_kg":       16.00,
+    "ricotta_kg":    10.00,
+    "sour_cream_kg":  9.00,
+
+    # ── Pantry / dry goods (CHF/kg) ──────────────────────────────────────────
+    "pasta":          1.20,   # M-Budget Spaghetti 1kg
+    "rice":           1.80,   # M-Budget 1kg
+    "bread":          2.00,   # Ruchbrot 500g ~1.00
+    "flour":          1.00,   # M-Budget 1kg
+    "oats":           1.80,   # 500g ~0.90
+    "lentils":        3.00,   # 500g ~1.50
+    "chickpeas":      3.00,   # canned 400g ~1.20
+    "tofu":           7.00,   # 400g ~2.80
+
+    # ── Sauces, oils, condiments (CHF/kg or litre) ───────────────────────────
+    "tomato_sauce":   2.50,   # Pelati 400g ~1.00
+    "vegetable_broth": 2.00,  # 1L carton ~2.00
+    "olive_oil":      7.40,   # M-Classic 1L ~7.40
+    "oil":            3.50,   # Rapsöl 1L ~3.50
+    "soy_sauce":      7.00,   # 250ml ~1.75
+    "tahini":         9.00,   # 250g ~2.25
+    "pesto":         10.00,   # 190g ~1.90
+    "dijon_mustard":  5.00,   # 200g ~1.00
+    "honey":         14.00,   # 500g ~7.00
+    "mayonnaise":     5.00,   # 265g ~1.30
+    "hot_sauce":      8.00,   # 150ml ~1.20
+    "bbq_sauce":      5.00,   # 370g ~1.85
+    "worcestershire": 6.00,   # 150ml ~0.90
+    "coconut_milk":   3.50,   # 400ml can ~1.40
+
+    # ── Piece-sold items (CHF per piece) ─────────────────────────────────────
+    "lemon":          0.70,   # ~0.65–0.75 per piece
+    "lime":           0.60,
+    "avocado":        1.60,   # Migros ~1.50–2.00 per piece
 }
+
+# BACKWARD-COMPATIBLE ALIAS
+# app.py originally imported INGREDIENT_VALUE_CHF.  We keep the old name
+# pointing at the same table so existing code keeps working unchanged.
+INGREDIENT_VALUE_CHF = INGREDIENT_PRICE_PER_KG_CHF
 
 # INGREDIENT DICTIONARY
 # Maps internal keys to human-readable English display names. The whole app

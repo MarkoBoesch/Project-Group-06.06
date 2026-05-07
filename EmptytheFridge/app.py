@@ -55,17 +55,114 @@ if "api_loaded" not in st.session_state:
 # Helper used on the Statistics page to estimate how many CHF worth of
 # ingredients were "saved" by cooking a recipe instead of letting them spoil.
 
-def calculate_costs(recipe):
-    """Goes through all ingredients and adds the value per ingredient."""
-    total = 0
-    # Ingredients are stored as a comma-separated string in the DB,
-    # so we split them back into a list of keys.
-    ingredient_keys = recipe["ingredients"].split(",")
-    for key in ingredient_keys:
-        key = key.strip()
-        # Fall back to 0.50 CHF for unknown ingredients (e.g. ones added
-        # by the API loader that aren't in our price table).
-        total += INGREDIENT_VALUE_CHF.get(key, 0.50)
+def calculate_costs(recipe, used_ingredients=None):
+    """
+    Estimates the CHF value of the ingredients the user was actually trying
+    to use up — i.e. only the keys they selected on the search page.
+
+    WHY: Staples like salt or flour are never selected (they're in
+    base_ingredients and assumed always at home). Other ingredients like
+    a specific spice bought just for this dish aren't "saved" either —
+    only the fresh items the user had in their fridge that might have
+    otherwise spoiled are real savings.
+
+    used_ingredients: comma-separated string of ingredient keys stored in
+    the history table (e.g. "chicken_breast,carrot,spinach"). When None or
+    empty (e.g. for old history entries or recommendation cooks), falls back
+    to pricing ALL non-base ingredients in the recipe.
+
+    Pricing is proportional by weight/quantity using the amounts field:
+      banana at CHF 2.40/kg × 0.250 kg = CHF 0.60
+    """
+    import re
+
+    # Determine which ingredient keys to price.
+    if used_ingredients:
+        keys_to_price = set(k.strip() for k in used_ingredients.split(",") if k.strip())
+    else:
+        # Fallback for history entries without saved keys (e.g. old data,
+        # or recipes cooked from the Recommendations page where no
+        # ingredient selection was made).
+        all_keys = [k.strip() for k in recipe["ingredients"].split(",")]
+        keys_to_price = set(k for k in all_keys if k and k not in base_ingredients)
+
+    # Build amounts dict from "key:amount,key:amount,..." string
+    amounts_dict = {}
+    if recipe.get("amounts"):
+        for entry in recipe["amounts"].split(","):
+            if ":" in entry:
+                parts = entry.split(":", 1)
+                amounts_dict[parts[0].strip()] = parts[1].strip()
+
+    # Piece-sold items: price per unit rather than per kg
+    UNIT_PRICED = {
+        "egg", "lemon", "lime", "avocado",
+        "butter", "cream", "heavy_cream", "yogurt", "cream_cheese",
+        "mozzarella", "parmesan", "feta", "ricotta", "sour_cream", "cheese",
+        "milk",
+    }
+    LIQUID_DENSITY = {
+        "olive_oil": 0.92, "oil": 0.92, "milk": 1.03,
+        "cream": 1.01, "heavy_cream": 1.00, "soy_sauce": 1.06,
+        "vegetable_broth": 1.00, "coconut_milk": 1.00,
+        "worcestershire": 1.09, "hot_sauce": 1.00, "bbq_sauce": 1.05,
+        "vinegar": 1.01, "honey": 1.40,
+    }
+    DEFAULT_PRICE_PER_KG = 3.00
+    DEFAULT_PORTION_KG   = 0.150
+
+    def parse_amount(key, raw):
+        price = INGREDIENT_VALUE_CHF.get(key, DEFAULT_PRICE_PER_KG)
+        raw = raw.strip().lower()
+
+        m = re.match(r"^([\d.]+)\s*g$", raw)
+        if m:
+            if key in UNIT_PRICED:
+                std_g = {"yogurt": 500, "butter": 250, "cream": 200,
+                         "heavy_cream": 500, "mozzarella": 150,
+                         "cream_cheese": 200, "feta": 200,
+                         "ricotta": 250, "sour_cream": 200,
+                         "cheese": 250, "parmesan": 100}.get(key, 250)
+                return price * float(m.group(1)) / std_g
+            return price * float(m.group(1)) / 1000.0
+
+        m = re.match(r"^([\d.]+)\s*kg$", raw)
+        if m:
+            return price * float(m.group(1))
+
+        m = re.match(r"^([\d.]+)\s*ml$", raw)
+        if m:
+            density = LIQUID_DENSITY.get(key, 1.00)
+            return price * float(m.group(1)) / 1000.0 * density
+
+        m = re.match(r"^([\d.]+)\s*l$", raw)
+        if m:
+            density = LIQUID_DENSITY.get(key, 1.00)
+            return price * float(m.group(1)) * density
+
+        m = re.match(r"^([\d.]+)\s*(tbsp|tsp)$", raw)
+        if m:
+            vol_ml = float(m.group(1)) * (15 if m.group(2) == "tbsp" else 5)
+            return price * (vol_ml / 1000.0) * LIQUID_DENSITY.get(key, 0.90)
+
+        m = re.match(r"^([\d.]+)$", raw)
+        if m:
+            count = float(m.group(1))
+            if key in UNIT_PRICED:
+                return price * count
+            return price * count * DEFAULT_PORTION_KG
+
+        return price * DEFAULT_PORTION_KG
+
+    total = 0.0
+    for key in keys_to_price:
+        raw_amount = amounts_dict.get(key, "")
+        if raw_amount:
+            total += parse_amount(key, raw_amount)
+        else:
+            price = INGREDIENT_VALUE_CHF.get(key, DEFAULT_PRICE_PER_KG)
+            total += price if key in UNIT_PRICED else price * DEFAULT_PORTION_KG
+
     return round(total, 2)
 
 
@@ -424,7 +521,10 @@ if page == "🥕 Enter Ingredients":
                     # from confusing buttons across multiple expanders.
                     if st.button("✅ Mark as Cooked", key=f"cook_{recipe['id']}"):
                         today = datetime.date.today().strftime("%Y-%m-%d")
-                        save_history(recipe["id"], today)
+                        # Store which ingredients the user selected so the
+                        # Statistics page can calculate savings only for those.
+                        used = ",".join(selected_keys) if selected_keys else ""
+                        save_history(recipe["id"], today, used_ingredients=used)
                         st.success(f"'{name}' added to your cooking history!")
                         st.rerun()
 
@@ -634,12 +734,16 @@ elif page == "📊 Statistics":
         for entry in history:
             recipe = load_recipe(entry["recipe_id"])
             if recipe:
-                total_costs += calculate_costs(recipe)
-                # Pantry staples are excluded so they don't inflate the count.
-                recipe_ingredients = []
-                for piece in recipe["ingredients"].split(","):
-                    cleaned = piece.strip()
-                    recipe_ingredients.append(cleaned)
+                total_costs += calculate_costs(recipe, entry.get("used_ingredients"))
+                # Only count the ingredients the user selected as "saved",
+                # excluding staples — same logic as the cost calculation.
+                used = entry.get("used_ingredients")
+                if used:
+                    saved_keys = [k.strip() for k in used.split(",") if k.strip()]
+                else:
+                    saved_keys = [k.strip() for k in recipe["ingredients"].split(",")
+                                  if k.strip() and k.strip() not in base_ingredients]
+                recipe_ingredients = saved_keys
 
                 for ingredient in recipe_ingredients:
                     if ingredient and ingredient not in base_ingredients:
@@ -685,7 +789,7 @@ elif page == "📊 Statistics":
         for entry in history:
             recipe = load_recipe(entry["recipe_id"])
             if recipe:
-                cost = calculate_costs(recipe)
+                cost = calculate_costs(recipe, entry.get("used_ingredients"))
                 session_co2 = round(cost * 0.8, 2)
                 # Convert "YYYY-MM-DD" strings into real date objects so the
                 # x-axis can treat them as a continuous time scale.
@@ -813,17 +917,43 @@ elif page == "📊 Statistics":
 
             st.write("Cooked today:", ", ".join(today_names))
 
-            # Convert absolute values into percentages of daily intake.
-            # Reference values are rough adult averages. Each percentage is
-            # capped at 100 so the radar chart stays in bounds.
-            # Vitamins/Minerals are already stored on a 0-100 scale.
-            calories_pct   = min(100, round(calories_today / 2000 * 100))
-            protein_pct    = min(100, round(protein_today / 50 * 100))
-            carbs_pct      = min(100, round(carbs_today / 260 * 100))
-            fat_pct        = min(100, round(fat_today / 70 * 100))
-            fiber_pct      = min(100, round(fiber_today / 30 * 100))
-            vitamins_pct   = min(100, vitamins_today)
-            minerals_pct   = min(100, minerals_today)
+            # ── DAILY REFERENCE VALUES ────────────────────────────────────
+            # Source: Swiss Federal Food Safety and Veterinary Office (BLV)
+            #   "Schweizer Referenzwerte für die Nährstoffzufuhr" (2022)
+            #   blv.admin.ch — Hauptnährstoffe (Protein, Kohlenhydrate, Fett)
+            #   Confirmed against WHO Healthy Diet fact-sheet (Jan 2026)
+            #   who.int/news-room/fact-sheets/detail/healthy-diet
+            #
+            # We use the midpoint between the BLV sedentary-adult targets
+            # for men (2 200 kcal, 70 kg reference) and women (1 800 kcal,
+            # 57 kg reference) to get a gender-neutral reference person.
+            #
+            #   Nutrient   Man    Woman   Average used here
+            #   ─────────────────────────────────────────────
+            #   Calories   2200   1800    2000 kcal
+            #   Protein      58     47      52 g  (0.83 g/kg BW/day)
+            #   Carbs       275    225     250 g  (45-60% of energy, BLV)
+            #   Fat          69     57      63 g  (20-35% of energy, BLV)
+            #   Fiber        30     25      30 g  (BLV/SGE adult target)
+            #
+            # Vitamins and Minerals are stored on a 0–100 scale by the
+            # recipe data (TheMealDB estimate), so 100 = full daily cover.
+
+            DAILY_CALORIES = 2000   # kcal
+            DAILY_PROTEIN  =   52   # g
+            DAILY_CARBS    =  250   # g
+            DAILY_FAT      =   63   # g
+            DAILY_FIBER    =   30   # g
+
+            # Convert absolute totals into % of daily reference.
+            # Capped at 100 so the spider chart never draws outside its circle.
+            calories_pct = min(100, round(calories_today / DAILY_CALORIES * 100))
+            protein_pct  = min(100, round(protein_today  / DAILY_PROTEIN  * 100))
+            carbs_pct    = min(100, round(carbs_today    / DAILY_CARBS    * 100))
+            fat_pct      = min(100, round(fat_today      / DAILY_FAT      * 100))
+            fiber_pct    = min(100, round(fiber_today    / DAILY_FIBER    * 100))
+            vitamins_pct = min(100, vitamins_today)
+            minerals_pct = min(100, minerals_today)
 
             categories = ["Calories", "Protein", "Carbs", "Fat", "Fiber", "Vitamins", "Minerals"]
             values = [
@@ -868,10 +998,13 @@ elif page == "📊 Statistics":
             with radar_center:
                 st.pyplot(fig_radar)
 
-            # Detail breakdown below the chart:
-            # same numbers as in the radar, plus the absolute values
-            # in parentheses so the user can see what is behind the %.
-            st.write("Detail view (% of daily intake):")
+            # Detail breakdown below the chart.
+            st.write("Detail view (% of daily reference — BLV/WHO avg adult):")
+            st.caption(
+                "Daily targets: 2 000 kcal · 52 g protein · 250 g carbs · "
+                "63 g fat · 30 g fiber  "
+                "_(Source: BLV Schweizer Referenzwerte 2022, avg. man/woman)_"
+            )
 
             col_a, col_b = st.columns(2)
             with col_a:
