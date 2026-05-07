@@ -764,8 +764,8 @@ elif page == "📊 Statistics":
             st.metric(
                 "💰 Saved Costs",
                 f"CHF {total_costs:.2f}",
-                help="Based on the estimated value of the ingredients used."
-            )
+                help="Based on the estimated value of the selected ingredients used."
+                )          
         with col3:
             st.metric(
                 "🧺 Saved Ingredients",
