@@ -58,13 +58,11 @@ if "api_loaded" not in st.session_state:
 def calculate_costs(recipe, used_ingredients=None):
     """
     Estimates the CHF value of the ingredients the user was actually trying
-    to use up — i.e. only the keys they selected on the search page.
+    to use up, meaning only the ingredients they selected on the search page.
 
-    WHY: Staples like salt or flour are never selected (they're in
-    base_ingredients and assumed always at home). Other ingredients like
-    a specific spice bought just for this dish aren't "saved" either —
-    only the fresh items the user had in their fridge that might have
-    otherwise spoiled are real savings.
+    Only the fresh items the user had in their fridge, which might otherwise 
+    have spoiled, count as real savings.For this reason, staples and items 
+    such as spices are not included in the cost calculations.
 
     used_ingredients: comma-separated string of ingredient keys stored in
     the history table (e.g. "chicken_breast,carrot,spinach"). When None or
