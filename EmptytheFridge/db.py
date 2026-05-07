@@ -152,6 +152,9 @@ def create_database():
     except Exception:
         pass  # column already exists — nothing to do
     connection.close()
+
+
+# SEED INGREDIENT DICTIONARY
 # Fills the ingredients table with the starter display names from constants.py
 # on the first run. We do this so that the multiselect on the search page
 # already has friendly names like "Bell Pepper" available. api_loader.py

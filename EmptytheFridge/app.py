@@ -521,10 +521,12 @@ if page == "🥕 Enter Ingredients":
                     # from confusing buttons across multiple expanders.
                     if st.button("✅ Mark as Cooked", key=f"cook_{recipe['id']}"):
                         today = datetime.date.today().strftime("%Y-%m-%d")
-                        # Store which ingredients the user selected so the
-                        # Statistics page can calculate savings only for those.
                         used = ",".join(selected_keys) if selected_keys else ""
-                        save_history(recipe["id"], today, used_ingredients=used)
+                        try:
+                            save_history(recipe["id"], today, None, used)
+                        except TypeError:
+                            # Fallback for older db.py without used_ingredients
+                            save_history(recipe["id"], today)
                         st.success(f"'{name}' added to your cooking history!")
                         st.rerun()
 
