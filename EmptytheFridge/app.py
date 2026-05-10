@@ -37,6 +37,40 @@ from constants import base_ingredients, INGREDIENT_VALUE_CHF, NON_VEGAN_INGREDIE
 # Loader that pulls all recipes from TheMealDB API into our local database.
 from api_loader import load_api_recipes
 
+
+# DROPDOWN-HIDDEN INGREDIENTS
+# Ingredients the user should NOT see in the search-page multiselect
+# because they don't really spoil and aren't things people try to "use
+# up" before they go bad — water, baking staples, oils, vinegar, salt,
+# sugar, plus shelf-stable condiments like mayo, hot sauce and
+# Worcestershire. These ingredients still exist everywhere else (the
+# recommender can still use them as features, the recipe details still
+# show them, the cost calculator still treats them sensibly), they're
+# just hidden from this specific UI element.
+#
+# Note: many of these (oil, olive_oil, salt, sugar, flour, baking_powder,
+# vinegar, water) are already in `base_ingredients` from constants.py,
+# which means the cost calculator and ingredient-overlap matcher already
+# treat them as pantry staples. The only behaviour change here is the
+# multiselect dropdown.
+
+HIDDEN_FROM_DROPDOWN = {
+    "water",
+    "baking_powder",
+    "oil",
+    "olive_oil",
+    "salt",
+    "sugar",
+    "vinegar",
+    "flour",
+    "bbq_sauce",
+    "dijon_mustard",
+    "hot_sauce",
+    "mayonnaise",
+    "worcestershire",
+}
+
+
 # PAGE SETTINGS
 # Browser tab title, icon and full-width ("wide") layout.
 
@@ -283,7 +317,18 @@ if page == "🥕 Enter Ingredients":
     # (e.g. "bell_pepper") and a human-readable display name (e.g. "Bell Pepper").
     # Display names are shown to the user, but matching is done with keys.
     all_ingredients = load_all_ingredients()
-    ingredient_display_names = [i["name"] for i in all_ingredients]
+
+    # Filter out ingredients that don't really spoil (water, salt, sugar,
+    # oil, flour, shelf-stable condiments etc.) so the user only sees
+    # things they might actually want to "use up". The hidden items are
+    # still available everywhere else in the app — the cost calculator,
+    # the ingredient-display helper, and the recommender all still see
+    # them as normal ingredients.
+    visible_ingredients = [
+        i for i in all_ingredients
+        if i["key"] not in HIDDEN_FROM_DROPDOWN
+    ]
+    ingredient_display_names = [i["name"] for i in visible_ingredients]
 
     st.subheader("Select Ingredients")
 
@@ -294,6 +339,9 @@ if page == "🥕 Enter Ingredients":
     )
 
     # Convert display names back into internal keys for matching.
+    # We look up against the full list (not visible_ingredients) so that
+    # any old session_state leftover with a hidden ingredient still
+    # resolves correctly.
     selected_keys = []
     for display_name in selected_display_names:
         for ingredient in all_ingredients:
