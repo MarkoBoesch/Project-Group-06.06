@@ -133,52 +133,43 @@ def collect_all_ingredient_keys(all_recipes):
     return sorted(seen)
 
 
-# SYNTHETIC TRAINING DATA — RICH PERSONA
+# SYNTHETIC TRAINING DATA — FOCUSED PERSONA
 # The persona is an Italian/Mediterranean-leaning home cook who:
 #   - Loves Italian, Mediterranean and fresh-vegetable ingredients
-#   - Likes some lighter Asian and Middle-Eastern flavours
-#   - Dislikes very heavy meats (bacon, sausage, pork) and most seafood
-#   - Is lukewarm on baking-only ingredients (flour, sugar, butter)
+#   - Dislikes heavy meats and seafood
 #
-# The richer set (~30 loved + ~20 disliked instead of the original 11+9)
-# gives the Random Forest a more nuanced training signal. Each recipe gets
-# a more meaningful score, so the 5 rating buckets are clearly separated
-# instead of bunching at the middle. This produces a stronger pattern for
-# the model to learn — small persona = noisy training data, rich persona
-# = more learnable structure.
+# We keep the persona to 30 ingredients total (18 loved + 12 disliked).
+# The split is intentional:
+#   - More loved than disliked because the recommendations are mostly
+#     about deciding what to RECOMMEND. The model needs more positive
+#     signal than negative signal to rank recipes well.
+#   - Disliked stays small but covers the clearly-avoided categories
+#     (heavy meats, seafood) which is enough to push those recipes down.
+#
+# We deliberately picked the most diagnostic ingredients — ones that
+# appear in many recipes and clearly identify "Italian-leaning vs heavy
+# meat" — so each ingredient flag in the feature vector carries strong
+# learning signal.
 
 LOVED_INGREDIENTS = {
-    # Italian/Mediterranean core
+    # Italian/Mediterranean core (8)
     "tomato", "mozzarella", "basil", "olive_oil", "pasta", "garlic",
-    "onion", "parmesan", "ricotta", "pesto",
-    # Fresh vegetables (loves vegetable-forward dishes)
+    "onion", "parmesan",
+    # Fresh vegetables (5)
     "spinach", "bell_pepper", "zucchini", "broccoli", "kale",
-    "asparagus", "fennel", "leek",
-    # Citrus and fresh accents
-    "lemon", "lime",
-    # Light Asian & Middle Eastern flavours
-    "ginger", "tofu", "chickpeas", "lentils",
-    # Eggs & light dairy (vegetarian-leaning)
-    "egg", "yogurt", "feta",
-    # Light grains
-    "rice", "oats",
-    # Fruits used in cooking
-    "avocado",
+    # Light/healthy proteins & grains (3)
+    "egg", "rice", "lentils",
+    # Citrus & fresh accents (2)
+    "lemon", "ginger",
 }
 
 DISLIKED_INGREDIENTS = {
-    # Heavy / cured meats
-    "bacon", "sausage", "pork", "ham", "prosciutto", "ground_beef",
-    # Seafood (the persona doesn't enjoy fish/seafood at all)
+    # Heavy / cured meats (5)
+    "bacon", "sausage", "pork", "ham", "ground_beef",
+    # Seafood — persona doesn't enjoy fish/seafood at all (4)
     "shrimp", "salmon", "tuna", "cod",
-    # Strong/heavy flavours the persona avoids
-    "lamb", "turkey",
-    # Heavy / processed condiments
-    "mayonnaise", "bbq_sauce", "hot_sauce", "worcestershire",
-    # Sweet baking ingredients (persona prefers savoury cooking)
-    "sugar", "honey",
-    # Some heavy dairy
-    "heavy_cream", "sour_cream",
+    # Heavy / processed condiments (3)
+    "mayonnaise", "bbq_sauce", "hot_sauce",
 }
 
 
@@ -463,23 +454,29 @@ def evaluate_recommender(real_history, all_recipes, test_size=0.2,
 
 
 # SCORE & RANK RECIPES
-# Main function called by the search page. Takes the candidate recipes
-# the user filtered down to (already filtered by allergens, diet, time
-# limit, difficulty, "must use at least one selected ingredient"),
-# predicts a star rating for each one, and returns the top 5.
+# Main function called by the History and Recommendations page. Takes
+# the full set of candidate recipes (the entire recipe database — the
+# History page is in "discovery" mode, not "fridge search" mode),
+# predicts a star rating for each one, filters out recipes the user has
+# already cooked too many times, and returns the top 5.
 
 def recommend_top_recipes(candidate_recipes, real_history, all_recipes,
-                          num_recommendations=5):
+                          num_recommendations=5, max_cook_count=3):
     """
     Returns a list of (recipe, predicted_rating) tuples, sorted from
     highest predicted rating to lowest, capped at num_recommendations.
 
-    candidate_recipes : list of recipe dicts already filtered by the search
-                        page's allergen/diet/time/difficulty filters.
+    candidate_recipes : list of recipe dicts to score (typically the
+                        full recipe DB on the History page).
     real_history      : the user's actual cooking history from db.py.
     all_recipes       : the full recipe database — needed so the master
                         ingredient list is built from ALL recipes, not
                         just the candidates.
+    max_cook_count    : recipes cooked MORE than this many times are
+                        excluded from the recommendations so the user
+                        keeps seeing fresh ideas. Default 3 means a recipe
+                        cooked 1, 2 or 3 times is still recommendable, but
+                        a recipe cooked 4 or more times stops appearing.
     """
 
     # If there are no candidates to score, return immediately to avoid
@@ -490,9 +487,32 @@ def recommend_top_recipes(candidate_recipes, real_history, all_recipes,
     # Train the Random Forest on synthetic + real history.
     model, all_ingredient_keys = train_recommender(real_history, all_recipes)
 
+    # Build a {recipe_id: cook_count} dict from the real history so we
+    # can drop recipes the user has already cooked too many times.
+    # Recommending "Tomato Pasta" for the fifth time would feel stale.
+    cook_counts = {}
+    for entry in real_history:
+        rid = entry.get("recipe_id")
+        if rid is not None:
+            cook_counts[rid] = cook_counts.get(rid, 0) + 1
+
+    # Keep recipes the user has cooked at most max_cook_count times.
+    # >=4 times = "cooked too often", excluded.
+    fresh_candidates = [
+        recipe for recipe in candidate_recipes
+        if cook_counts.get(recipe["id"], 0) <= max_cook_count
+    ]
+
+    # Edge case: if the cook-count filter removed everything (e.g. a
+    # tiny recipe DB where every recipe has been cooked many times),
+    # fall back to the full candidate list so the UI never shows an
+    # empty recommendations panel.
+    if not fresh_candidates:
+        fresh_candidates = candidate_recipes
+
     # Build the feature matrix for the candidate recipes.
     X_candidates = []
-    for recipe in candidate_recipes:
+    for recipe in fresh_candidates:
         X_candidates.append(build_recipe_vector(recipe, all_ingredient_keys))
     X_candidates = np.array(X_candidates)
 
@@ -501,7 +521,7 @@ def recommend_top_recipes(candidate_recipes, real_history, all_recipes,
     predictions = model.predict(X_candidates)
 
     # Pair each recipe with its predicted rating, then sort highest first.
-    scored = list(zip(candidate_recipes, predictions))
+    scored = list(zip(fresh_candidates, predictions))
     scored.sort(key=lambda pair: pair[1], reverse=True)
 
     # Cap predictions to the valid 1-5 range — the trees can occasionally
