@@ -455,28 +455,29 @@ def evaluate_recommender(real_history, all_recipes, test_size=0.2,
 
 # SCORE & RANK RECIPES
 # Main function called by the History and Recommendations page. Takes
-# the full set of candidate recipes (the entire recipe database — the
-# History page is in "discovery" mode, not "fridge search" mode),
-# predicts a star rating for each one, filters out recipes the user has
-# already cooked too many times, and returns the top 5.
+# a list of candidate recipes, predicts a star rating for each one with
+# the trained Random Forest, and returns the top N.
+#
+# Filtering of which recipes to score (e.g. "exclude recipes cooked
+# 4+ times") is the caller's job — keeping it out of this function keeps
+# the ML logic focused and easier to reason about.
 
 def recommend_top_recipes(candidate_recipes, real_history, all_recipes,
-                          num_recommendations=5, max_cook_count=3):
+                          num_recommendations=5):
     """
     Returns a list of (recipe, predicted_rating) tuples, sorted from
     highest predicted rating to lowest, capped at num_recommendations.
 
-    candidate_recipes : list of recipe dicts to score (typically the
-                        full recipe DB on the History page).
+    candidate_recipes : list of recipe dicts to score. The caller is
+                        responsible for any pre-filtering (e.g. excluding
+                        recipes cooked too often).
     real_history      : the user's actual cooking history from db.py.
+                        Used to TRAIN the model, not to filter candidates.
     all_recipes       : the full recipe database — needed so the master
                         ingredient list is built from ALL recipes, not
-                        just the candidates.
-    max_cook_count    : recipes cooked MORE than this many times are
-                        excluded from the recommendations so the user
-                        keeps seeing fresh ideas. Default 3 means a recipe
-                        cooked 1, 2 or 3 times is still recommendable, but
-                        a recipe cooked 4 or more times stops appearing.
+                        just the candidates. This keeps the feature
+                        vector consistent across calls.
+    num_recommendations: how many top picks to return (default 5).
     """
 
     # If there are no candidates to score, return immediately to avoid
@@ -487,32 +488,9 @@ def recommend_top_recipes(candidate_recipes, real_history, all_recipes,
     # Train the Random Forest on synthetic + real history.
     model, all_ingredient_keys = train_recommender(real_history, all_recipes)
 
-    # Build a {recipe_id: cook_count} dict from the real history so we
-    # can drop recipes the user has already cooked too many times.
-    # Recommending "Tomato Pasta" for the fifth time would feel stale.
-    cook_counts = {}
-    for entry in real_history:
-        rid = entry.get("recipe_id")
-        if rid is not None:
-            cook_counts[rid] = cook_counts.get(rid, 0) + 1
-
-    # Keep recipes the user has cooked at most max_cook_count times.
-    # >=4 times = "cooked too often", excluded.
-    fresh_candidates = [
-        recipe for recipe in candidate_recipes
-        if cook_counts.get(recipe["id"], 0) <= max_cook_count
-    ]
-
-    # Edge case: if the cook-count filter removed everything (e.g. a
-    # tiny recipe DB where every recipe has been cooked many times),
-    # fall back to the full candidate list so the UI never shows an
-    # empty recommendations panel.
-    if not fresh_candidates:
-        fresh_candidates = candidate_recipes
-
     # Build the feature matrix for the candidate recipes.
     X_candidates = []
-    for recipe in fresh_candidates:
+    for recipe in candidate_recipes:
         X_candidates.append(build_recipe_vector(recipe, all_ingredient_keys))
     X_candidates = np.array(X_candidates)
 
@@ -521,7 +499,7 @@ def recommend_top_recipes(candidate_recipes, real_history, all_recipes,
     predictions = model.predict(X_candidates)
 
     # Pair each recipe with its predicted rating, then sort highest first.
-    scored = list(zip(fresh_candidates, predictions))
+    scored = list(zip(candidate_recipes, predictions))
     scored.sort(key=lambda pair: pair[1], reverse=True)
 
     # Cap predictions to the valid 1-5 range — the trees can occasionally

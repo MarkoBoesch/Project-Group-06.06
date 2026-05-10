@@ -620,15 +620,32 @@ elif page == "📖 History and Recommendations":
     )
 
     all_recipes_for_recs = load_all_recipes()
-    # max_cook_count=3 means: a recipe with 4+ cooks gets dropped, which
-    # is exactly the spec ("excluded if cooked >=4 times"). 0/1/2/3 cooks
-    # are still recommendable.
+
+    # Filter out recipes the user has already cooked 4+ times so the
+    # suggestions stay fresh. We do this filter HERE (rather than passing
+    # a keyword argument into recommend_top_recipes) so the call works
+    # regardless of which version of recommender.py is deployed.
+    cook_counts = {}
+    for h_entry in history:
+        rid = h_entry.get("recipe_id")
+        if rid is not None:
+            cook_counts[rid] = cook_counts.get(rid, 0) + 1
+
+    fresh_recipes = [
+        recipe for recipe in all_recipes_for_recs
+        if cook_counts.get(recipe["id"], 0) < 4
+    ]
+
+    # Edge case: if the user has cooked everything ≥4 times, fall back
+    # to the full DB so the recommendations panel never shows blank.
+    if not fresh_recipes:
+        fresh_recipes = all_recipes_for_recs
+
     recommendations = recommend_top_recipes(
-        all_recipes_for_recs,
+        fresh_recipes,
         history,
         all_recipes_for_recs,
         num_recommendations=5,
-        max_cook_count=3,
     )
 
     if not recommendations:
