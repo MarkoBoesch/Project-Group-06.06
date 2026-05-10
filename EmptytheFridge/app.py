@@ -5,9 +5,13 @@
 # - Sets up the page configuration
 # - Loads recipes from TheMealDB API on the first run
 # - Routes the user between the three main pages:
-#       1. Enter Ingredients       (find recipes based on what you have at home)
-#       2. History and Recommendations   (cooked recipes + ML-based recommendations)
-#       3. Statistics              (cost / CO2 / nutrition overview)
+#       1. Enter Ingredients   (find + ML-ranked recipes based on what you have)
+#       2. History             (list of cooked recipes, gives ratings to feed the model)
+#       3. Statistics          (cost / CO2 / nutrition overview)
+#
+# Recommendations are now produced by a Random Forest model
+# (see recommender.py). They appear directly on the Enter Ingredients
+# page as the top 5 recipes ranked by predicted user rating.
 #
 # To start the app, type in the terminal: streamlit run app.py
 # -----------------------------------------------------------------------------
@@ -26,8 +30,8 @@ from db import (
     save_history,
     update_rating
 )
-# Machine-learning recommendation logic.
-from recommender import calculate_recommendations, calculate_recommendations_by_rating
+# Machine-learning recommendation logic (Random Forest).
+from recommender import recommend_top_recipes, evaluate_recommender
 # Static data: pantry staples, diet filters, CHF prices, display name dictionary.
 from constants import base_ingredients, INGREDIENT_VALUE_CHF, NON_VEGAN_INGREDIENTS, NON_VEGETARIAN_INGREDIENTS, ingredient_dictionary
 # Loader that pulls all recipes from TheMealDB API into our local database.
@@ -255,7 +259,7 @@ page = st.sidebar.radio(
     "Navigation",
     [
         "🥕 Enter Ingredients",
-        "📖 History and Recommendations",
+        "📖 History",
         "📊 Statistics",
     ]
 )
@@ -263,7 +267,9 @@ page = st.sidebar.radio(
 # -----------------------------------------------------------------------------
 # PAGE 1: ENTER INGREDIENTS
 # Main "search" page. Users select what they have at home, optionally apply
-# diet/time/difficulty/allergen filters, and get matching recipes back.
+# diet/time/difficulty/allergen filters, and get the top 5 recipes back as
+# ranked by the Random Forest model. Each card shows the predicted user
+# rating so the user can see WHY a recipe ranked where it did.
 # -----------------------------------------------------------------------------
 
 # Only when the user has selected "🥕 Enter Ingredients" in the navigation bar 
@@ -372,9 +378,9 @@ if page == "🥕 Enter Ingredients":
 
     # SEARCH RECIPES
     # When "Find Recipes" is clicked, every recipe is checked against all
-    # filters. Recipes that pass are then ranked by how many extra
-    # ingredients they still require. The ones requiring the fewest or none
-    # appear higher up in the results.
+    # filters. Recipes that pass the filters become the "candidate" set,
+    # which is then handed to the Random Forest model. The model predicts
+    # a star rating for every candidate, and we keep the top 5.
 
     if st.button("🔍 Find Recipes", type="primary"):
 
@@ -384,7 +390,7 @@ if page == "🥕 Enter Ingredients":
             st.warning("Please select at least one ingredient.")
         else:
             all_recipes = load_all_recipes()
-            matching_recipes = []
+            candidate_recipes = []
 
             # Walk through every recipe and apply each filter in turn.
             # `continue` is used to skip recipes that fail a filter.
@@ -422,90 +428,129 @@ if page == "🥕 Enter Ingredients":
                     if not any(i in NON_VEGETARIAN_INGREDIENTS for i in recipe_ingredients):
                         continue
 
-                # Ingredient match scoring: count how many of the recipe's
-                # ingredients the user has, and how many are still missing
-                # (pantry staples like salt/oil are assumed to be at home
-                # and are excluded from the missing count).
+                # The recipe must use at least one of the user's selected
+                # ingredients — otherwise it is not relevant to "what's in
+                # my fridge". This keeps the ML ranking grounded in what
+                # the user actually has.
+                if not any(key in recipe_ingredients for key in selected_keys):
+                    continue
 
-                recipe_ingredients = [i.strip() for i in recipe["ingredients"].split(",")]
+                candidate_recipes.append(recipe)
 
-                # Count how many of the user's selected ingredients appear in this recipe.
-                present_ingredients = 0
-                for key in selected_keys:
-                    if key in recipe_ingredients:
-                        present_ingredients += 1
-
-                # Count how many recipe ingredients the user is still missing,
-                # ignoring pantry staples.
-                missing_ingredients = 0
-                for ingredient in recipe_ingredients:
-                    if ingredient not in selected_keys and ingredient not in base_ingredients:
-                        missing_ingredients += 1
-
-                # Only keep recipes that use at least one of the user's
-                # ingredients - otherwise the result feels disconnected.
-                if present_ingredients > 0:
-                    matching_recipes.append({
-                        "recipe": recipe,
-                        "present": present_ingredients,
-                        "missing": missing_ingredients
-                    })
-
-            # Sort by most matching ingredients first.
-            # Primary sort: how many of the user's selected ingredients the recipe uses (more = better).
-            # Tiebreaker: how many ingredients are still missing (fewer = better).
-            def by_best_match(entry):
-                return (-entry["present"], entry["missing"])
-
-            matching_recipes.sort(key=by_best_match)
+            # ML RANKING
+            # Hand the filtered candidate list to the Random Forest model.
+            # The model has been trained on synthetic + real history (see
+            # recommender.py) and predicts a star rating for every recipe.
+            # We keep only the top 5.
+            history = load_history()
+            ranked = recommend_top_recipes(
+                candidate_recipes, history, all_recipes, num_recommendations=5
+            )
 
             # Persist results in session_state so they survive reruns
             # triggered by other widgets (e.g. "Mark as Cooked").
-            st.session_state.search_results = matching_recipes
+            st.session_state.search_results = ranked
+            st.session_state.search_selected_keys = list(selected_keys)
             st.session_state.show_results = True
 
     # SHOW RESULTS
-    # Renders each matching recipe as a collapsible expander containing
-    # quick stats, a colour-coded ingredient list, instructions, and a
-    # "Mark as Cooked" button that writes a history entry.
+    # Renders each ranked recipe as a collapsible expander with the model's
+    # predicted star rating, quick stats, a colour-coded ingredient list,
+    # the cooking instructions, and a "Mark as Cooked" button.
 
     if "show_results" in st.session_state and st.session_state.show_results:
 
         results = st.session_state.search_results
+        # Pull the selected_keys captured at search time so the rendered
+        # ingredient groups still work even if the user later un-ticks
+        # something in the multiselect.
+        result_selected_keys = st.session_state.get("search_selected_keys", [])
 
         # Show a hint if there are no matches, otherwise display the result count.
         if len(results) == 0:
             st.info("No matching recipes found. Try different ingredients or filters.")
         else:
             count = len(results)
-            st.subheader(f"{count} recipes found")
+            st.subheader(f"⭐ Top {count} recipes for you")
+            st.caption(
+                "Recipes are ranked by predicted user rating using a Random Forest "
+                "machine-learning model trained on your taste profile."
+            )
 
-            # Walk through every matching recipe and pull out its data for display.
-            for entry in results:
-                recipe = entry["recipe"]
+            # MODEL EVALUATION (held-out test split)
+            # Slide 55 of the lecture: "we need a second data set to test the
+            # generalization. If and only if the error is acceptable on this
+            # second data set, we can report success." We split the training
+            # data 80/20, fit on the 80%, and report the prediction error on
+            # the 20% the model never saw. MAE = how far off in stars on
+            # average; MSE = same idea but squared (penalises big misses).
+            history_for_eval = load_history()
+            all_recipes_for_eval = load_all_recipes()
+            mae, mse, n_test = evaluate_recommender(
+                history_for_eval, all_recipes_for_eval
+            )
+
+            if mae is not None:
+                eval_col1, eval_col2 = st.columns(2)
+                with eval_col1:
+                    st.metric(
+                        "🎯 Model Accuracy (MAE)",
+                        f"± {mae:.2f} stars",
+                        help=(
+                            "Mean Absolute Error. Average distance between the "
+                            "model's predicted rating and the actual rating, "
+                            f"measured on a held-out 20% test split ({n_test} "
+                            "recipes the model never saw during training). "
+                            "Lower is better — closer to 0 means more accurate."
+                        ),
+                    )
+                with eval_col2:
+                    st.metric(
+                        "📐 Model Accuracy (MSE)",
+                        f"{mse:.2f} stars²",
+                        help=(
+                            "Mean Squared Error. Like MAE, but squares each "
+                            "prediction error so big misses are penalised "
+                            "more heavily than small ones. Reported in stars². "
+                            "Lower is better."
+                        ),
+                    )
+                st.caption(
+                    "Evaluation: the model was trained on 80% of the synthetic "
+                    "and real ratings and tested on the remaining 20% it had "
+                    "never seen. These numbers describe the model's "
+                    "generalization, not the predictions shown below."
+                )
+
+            # Walk through every ranked recipe and pull out its data for display.
+            for recipe, predicted_rating in results:
                 name = recipe["name"]
 
-                with st.expander(f"🍽️ {name} — missing: {entry['missing']} ingredients"):
+                # Header includes the predicted star rating so the user can
+                # see at a glance how strongly the model recommends it.
+                expander_label = (
+                    f"🍽️ {name} — ⭐ predicted: {predicted_rating:.1f} / 5"
+                )
 
-                    # Quick stats row: time / difficulty / calories.
-                    col_a, col_b, col_c = st.columns(3)
+                with st.expander(expander_label):
+
+                    # Quick stats row: predicted rating / time / difficulty / calories.
+                    col_a, col_b, col_c, col_d = st.columns(4)
                     with col_a:
-                        st.metric("Cooking time", f"{recipe['time_minutes']} min")
+                        st.metric("Predicted rating",
+                                  f"⭐ {predicted_rating:.1f} / 5")
                     with col_b:
-                        st.metric("Difficulty", recipe["difficulty"])
+                        st.metric("Cooking time", f"{recipe['time_minutes']} min")
                     with col_c:
+                        st.metric("Difficulty", recipe["difficulty"])
+                    with col_d:
                         st.metric("Calories", f"{recipe['calories']} kcal")
 
                     # INGREDIENTS: Static display for 2 portions.
                     # Amounts come straight from TheMealDB.
                     # Each ingredient is sorted into one of three groups
                     # (have / pantry / missing) for colour-coded display.
-
-                    # Render ingredients via the shared helper. Passing
-                    # selected_keys enables 3-group mode (have/pantry/missing
-                    # with the green tick group) plus the success message
-                    # when nothing is missing.
-                    render_recipe_ingredients(recipe, selected_keys=selected_keys)
+                    render_recipe_ingredients(recipe, selected_keys=result_selected_keys)
 
                     st.divider()
 
@@ -514,12 +559,13 @@ if page == "🥕 Enter Ingredients":
                     st.write(recipe["instructions"])
 
                     # "Mark as Cooked" writes today's date and the recipe ID
-                    # into the history table, which feeds the Recommendations
-                    # and Statistics pages. The unique key prevents Streamlit
-                    # from confusing buttons across multiple expanders.
+                    # into the history table, which feeds the Random Forest
+                    # model on the next training cycle. The unique key
+                    # prevents Streamlit from confusing buttons across
+                    # multiple expanders.
                     if st.button("✅ Mark as Cooked", key=f"cook_{recipe['id']}"):
                         today = datetime.date.today().strftime("%Y-%m-%d")
-                        used = ",".join(selected_keys) if selected_keys else ""
+                        used = ",".join(result_selected_keys) if result_selected_keys else ""
                         try:
                             save_history(recipe["id"], today, None, used)
                         except TypeError:
@@ -530,20 +576,21 @@ if page == "🥕 Enter Ingredients":
 
 
 # -----------------------------------------------------------------------------
-# PAGE 2: HISTORY AND RECOMMENDATIONS
-# Shows previously cooked recipes (with optional star ratings) and a list
-# of personalised recommendations computed by the recommender module
-# (cosine similarity on ingredient vectors).
+# PAGE 2: HISTORY
+# Shows previously cooked recipes and lets the user rate them. Ratings
+# feed the Random Forest model on the search page (the model retrains
+# from scratch on every search using synthetic + real history). The
+# recommendations themselves are NOT shown here anymore — they live
+# next to the search results on the Enter Ingredients page.
 # -----------------------------------------------------------------------------
 
-# Only when the user has selected "📖 History and Recommendations" in the navigation bar
+# Only when the user has selected "📖 History" in the navigation bar
 # does this whole block execute.
-elif page == "📖 History and Recommendations":
+elif page == "📖 History":
 
-    st.header("📖 History and Recommendations")
+    st.header("📖 History")
 
     history = load_history()
-    all_recipes = load_all_recipes()
 
     # COOKING HISTORY
     # Each cooked recipe gets its own expander showing date, calories
@@ -551,6 +598,10 @@ elif page == "📖 History and Recommendations":
     # slider is replaced by the rating itself.
 
     st.subheader("Your Cooking History")
+    st.caption(
+        "Rate the recipes you cooked so the recommendation model learns "
+        "your taste. Newer ratings count more strongly than older ones."
+    )
 
     if len(history) == 0:
         st.info("You haven't cooked any recipes yet. Go to the home page and find your first recipe!")
@@ -580,125 +631,6 @@ elif page == "📖 History and Recommendations":
                         if st.button("Save rating", key=f"save_{entry['id']}"):
                             update_rating(entry["id"], rating)
                             st.rerun()
-
-    # ML RECOMMENDATIONS — SIMILAR RECIPES (BASED ON LAST COOKED)
-    # calculate_recommendations() (in recommender.py) builds a 0/1
-    # ingredient matrix for all recipes and uses cosine similarity to
-    # find recipes similar to the user's most recent cook.
-
-    # Track which recipe IDs are shown in this first section so that the
-    # second section (rating-based) can exclude them and avoid duplicates.
-    # Initialised here so it's always defined, even when section 1 is empty.
-    shown_ids = []
-
-    st.divider()
-    st.subheader("🍳 Recommendations of similar recipes")
-    st.caption("Personalised suggestions calculated with machine learning based on your cooking history.")
-
-    if len(history) == 0:
-        st.info("Cook your first recipe to unlock personalised recommendations!")
-    else:
-        recommendations = calculate_recommendations(history, all_recipes, num_recommendations=4)
-
-        if not recommendations:
-            st.info("No recommendations available yet.")
-        else:
-            # Remember which IDs we are about to display so the next section
-            # can skip them.
-            shown_ids = [rec["id"] for rec in recommendations]
-
-            # Render each recommendation in its own expander, similar
-            # to the search results page.
-            for rec in recommendations:
-                rec_name = rec["name"]
-
-                with st.expander(f"🍽️ {rec_name} — {rec['time_minutes']} min · {rec['difficulty']}"):
-
-                    col_a, col_b, col_c = st.columns(3)
-                    with col_a:
-                        st.metric("Cooking time", f"{rec['time_minutes']} min")
-                    with col_b:
-                        st.metric("Difficulty", rec["difficulty"])
-                    with col_c:
-                        st.metric("Calories", f"{rec['calories']} kcal")
-
-                    # Render ingredients via the shared helper. No
-                    # selected_keys here, because on the History and 
-                    # Recommendations page the user did not enter what 
-                    # they currently have at home.
-                    render_recipe_ingredients(rec)
-
-                    # Instructions come from TheMealDB (loaded via api_loader.py).
-                    st.divider()
-                    st.subheader("👨\u200d🍳 Instructions")
-                    st.write(rec["instructions"])
-
-                    # Same "Mark as Cooked" mechanism as on the search page,
-                    # but with a different key prefix to avoid conflicts.
-                    if st.button("✅ Mark as Cooked", key=f"rec_cook_{rec['id']}"):
-                        today = datetime.date.today().strftime("%Y-%m-%d")
-                        save_history(rec["id"], today)
-                        st.success(f"'{rec_name}' added to your cooking history!")
-                        st.rerun()
-
-    # ML RECOMMENDATIONS — BECAUSE YOU LIKED IT LAST TIME (BASED ON RATINGS)
-    # calculate_recommendations_by_rating() reuses the same cosine-similarity
-    # logic, but builds a "user taste profile" as a weighted mean of all rated
-    # recipe vectors (rating used as the weight). It then compares that
-    # profile to every recipe. If the user has not cooked or rated anything
-    # yet, the function returns an empty list so we can show a warning here.
-    # We also pass shown_ids so the recipes already displayed in the section 
-    # above are excluded, preventing the two sections from overlapping.
-
-    st.divider()
-    st.subheader("⭐ Because you liked it last time")
-    st.caption("Recipes that match your taste profile, weighted by the ratings you gave to past meals.")
-
-    if len(history) == 0:
-        st.warning("You have to cook and rate a recipe first before a recommendation can be given here.")
-    else:
-        # Filter for entries that actually have a rating. The rating-based
-        # recommender needs at least one rated recipe to build a taste profile.
-        rated_history = [h for h in history if h.get("rating")]
-        if not rated_history:
-            st.warning("You have to rate your cooked recipes first before a recommendation can be given here.")
-        else:
-            rated_recommendations = calculate_recommendations_by_rating(
-                history, all_recipes, num_recommendations=4, exclude_ids=shown_ids
-            )
-
-            # Same expander layout as the section above, just a different
-            # button-key prefix to avoid Streamlit key collisions.
-            for rec in rated_recommendations:
-                rec_name = rec["name"]
-
-                with st.expander(f"🍽️ {rec_name} — {rec['time_minutes']} min · {rec['difficulty']}"):
-
-                    col_a, col_b, col_c = st.columns(3)
-                    with col_a:
-                        st.metric("Cooking time", f"{rec['time_minutes']} min")
-                    with col_b:
-                        st.metric("Difficulty", rec["difficulty"])
-                    with col_c:
-                        st.metric("Calories", f"{rec['calories']} kcal")
-
-                    # Render ingredients via the shared helper (same as
-                    # the section above — see render_recipe_ingredients).
-                    render_recipe_ingredients(rec)
-
-                    # Instructions come from TheMealDB (loaded via api_loader.py).
-                    st.divider()
-                    st.subheader("👨\u200d🍳 Instructions")
-                    st.write(rec["instructions"])
-
-                    # Same "Mark as Cooked" mechanism as above, but with a
-                    # different key prefix (rated_cook_) so Streamlit doesn't
-                    # confuse it with the buttons in the section above.
-                    if st.button("✅ Mark as Cooked", key=f"rated_cook_{rec['id']}"):
-                        today = datetime.date.today().strftime("%Y-%m-%d")
-                        save_history(rec["id"], today)
-                        st.success(f"'{rec_name}' added to your cooking history!")
-                        st.rerun()
 
 
 # -----------------------------------------------------------------------------
