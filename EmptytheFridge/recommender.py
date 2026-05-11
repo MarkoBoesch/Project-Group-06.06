@@ -137,7 +137,7 @@ def collect_all_ingredient_keys(all_recipes):
 #   - Loves Italian, Mediterranean and fresh-vegetable ingredients
 #   - Dislikes heavy meats and seafood
 #
-# We keep the persona to 30 ingredients total (18 loved + 12 disliked).
+# We keep the persona to 29 ingredients total (17 loved + 12 disliked).
 # The split is intentional:
 #   - More loved than disliked because the recommendations are mostly
 #     about deciding what to recommend. The model needs more positive
@@ -151,8 +151,8 @@ def collect_all_ingredient_keys(all_recipes):
 # learning signal.
 
 LOVED_INGREDIENTS = {
-    # Italian/Mediterranean core (8)
-    "tomato", "mozzarella", "basil", "olive_oil", "pasta", "garlic",
+    # Italian/Mediterranean core (7)
+    "tomato", "mozzarella", "olive_oil", "pasta", "garlic",
     "onion", "parmesan",
     # Fresh vegetables (5)
     "spinach", "bell_pepper", "zucchini", "broccoli", "kale",

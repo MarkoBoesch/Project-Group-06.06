@@ -40,8 +40,14 @@ from api_loader import load_api_recipes
 # api_loader.py) limits the dropdown to canonical keys. Stage 2, below,
 # additionally hides pantry items the user wouldn't think of as "things
 # to use up" (water, oils, salt, sugar, baking staples, shelf-stable
-# condiments). They still work everywhere else in the app, just not in
-# this dropdown.
+# condiments).
+#
+# These ingredients still participate in recipe matching (so a recipe
+# requiring olive oil isn't penalised) and still show up in the recipe
+# detail view. However, items that also appear in base_ingredients
+# (water, oil, olive_oil, salt, sugar, vinegar, flour) are additionally
+# excluded from cost/savings calculations because they are not the
+# fresh perishables we are trying to "rescue".
 
 HIDDEN_FROM_DROPDOWN = {
     "water",
@@ -251,7 +257,7 @@ def render_recipe_ingredients(recipe, selected_keys=None):
                 unsafe_allow_html=True,
             )
 
-    st.subheader("🛒 Ingredients for 2 portions")
+    st.subheader("🛒 Ingredients")
 
     # The "have" group only exists in search-page mode (selected_keys given).
     if selected_keys is not None:
@@ -547,8 +553,12 @@ if page == "🥕 Enter Ingredients":
                     with col_c:
                         st.metric("Calories", f"{recipe['calories']} kcal")
 
-                    # INGREDIENTS: Static display for 2 portions.
-                    # Amounts come straight from TheMealDB.
+                    # INGREDIENTS: Static display of the recipe's ingredient list.
+                    # Amounts come straight from TheMealDB and are shown
+                    # exactly as the original recipe specifies them. The
+                    # app does not scale or normalize portion sizes, so
+                    # one recipe's amounts and another's are not directly
+                    # comparable.
                     # Each ingredient is sorted into one of three groups
                     # (have / pantry / missing) for colour-coded display.
                     render_recipe_ingredients(recipe, selected_keys=result_selected_keys)
@@ -851,6 +861,13 @@ elif page == "📊 Statistics":
         # Multiple cooking sessions on the same day get summed into a single
         # bar so we don't end up with overlapping bars at the same x-position.
         # We use a {date_object: total_co2} dict for easy summing.
+        #
+        # CO2 factor: We use a rough heuristic of 0.8 kg CO2-equivalent
+        # saved per CHF of food rescued from spoilage. This is an
+        # illustrative approximation only. The actual carbon footprint
+        # of food waste varies widely by food type (meat is far higher
+        # per CHF than vegetables), but a single average multiplier is
+        # enough to give the user a rough sense of cumulative impact.
         co2_by_date = {}
         for entry in history:
             recipe = load_recipe(entry["recipe_id"])
@@ -984,26 +1001,38 @@ elif page == "📊 Statistics":
             st.write("Cooked today:", ", ".join(today_names))
 
             # DAILY REFERENCE VALUES
-            # Source: Swiss Federal Food Safety and Veterinary Office (BLV)
-            #   "Schweizer Referenzwerte für die Nährstoffzufuhr" (2022)
-            #   blv.admin.ch, Hauptnährstoffe (Protein, Kohlenhydrate, Fett)
-            #   Confirmed against WHO Healthy Diet fact-sheet (Jan 2026)
-            #   who.int/news-room/fact-sheets/detail/healthy-diet
+            # Approximate daily intake targets for an average adult,
+            # based on standard public-health guidance for a sedentary
+            # 70 kg / 57 kg reference person (rough average of common
+            # male and female targets).
             #
-            # We use the midpoint between the BLV sedentary-adult targets
-            # for men (2200 kcal, 70 kg reference) and women (1800 kcal,
-            # 57 kg reference) to get a gender-neutral reference person.
+            #   Nutrient   Approx. target
+            #   ──────────────────────────
+            #   Calories   2000 kcal
+            #   Protein      52 g   (~0.83 g/kg body weight per day)
+            #   Carbs       250 g   (~45-60% of energy)
+            #   Fat          63 g   (~20-35% of energy)
+            #   Fiber        30 g
             #
-            #   Nutrient   Man    Woman   Average used here
-            #   ─────────────────────────────────────────────
-            #   Calories   2200   1800    2000 kcal
-            #   Protein      58     47      52 g  (0.83 g/kg BW/day)
-            #   Carbs       275    225     250 g  (45-60% of energy, BLV)
-            #   Fat          69     57      63 g  (20-35% of energy, BLV)
-            #   Fiber        30     25      30 g  (BLV/SGE adult target)
+            # These are illustrative targets used only to compute the
+            # radar percentages. They are not medical advice. If you
+            # want exact, citable values, replace the constants below
+            # with figures from an authoritative source you have
+            # personally verified (e.g. the BLV "Schweizer
+            # Referenzwerte" publication, or WHO healthy-diet
+            # fact-sheets).
             #
-            # Vitamins and Minerals are stored on a 0 to 100 scale by the
-            # recipe data (TheMealDB estimate), so 100 = full daily cover.
+            # Vitamins and Minerals are computed locally in
+            # api_loader.estimate_nutrition() as a simple count-based
+            # heuristic: min(80, num_ingredients * 8) for vitamins and
+            # min(60, num_ingredients * 6) for minerals. They are NOT
+            # provided by TheMealDB (which has no nutrition data).
+            #
+            # Important consequence: by construction the vitamins axis
+            # caps at 80% and the minerals axis at 60% — neither can
+            # ever fill the radar. We treat the stored value as a
+            # percentage directly (so a value of 80 = 80% of the daily
+            # radar slice).
 
             DAILY_CALORIES = 2000   # kcal
             DAILY_PROTEIN  =   52   # g
@@ -1065,11 +1094,10 @@ elif page == "📊 Statistics":
                 st.pyplot(fig_radar)
 
             # Detail breakdown below the chart.
-            st.write("Detail view (% of daily reference — BLV/WHO avg adult):")
+            st.write("Detail view (% of approximate daily intake for an average adult):")
             st.caption(
-                "Daily targets: 2 000 kcal · 52 g protein · 250 g carbs · "
+                "Approximate daily targets: 2 000 kcal · 52 g protein · 250 g carbs · "
                 "63 g fat · 30 g fiber  "
-                "_(Source: BLV Schweizer Referenzwerte 2022, avg. man/woman)_"
             )
 
             col_a, col_b = st.columns(2)
