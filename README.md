@@ -4,7 +4,7 @@ ChatGPT and Claude was used to assist with parts of the code and documentation.
 
 Here is how it works:
 
-## Project Structure
+Project Structure
 
 EmptytheFridge/
 ├── app.py              # Main Streamlit app (UI, pages, navigation)
