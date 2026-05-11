@@ -5,15 +5,10 @@
 # - Sets up the page configuration
 # - Loads recipes from TheMealDB API on the first run
 # - Routes the user between the three main pages:
-#       1. Enter Ingredients   (find recipes matching what you have at home)
-#       2. History and Recommendations
-#                              (cooking history, ratings, and ML recommendations)
-#       3. Statistics          (cost / CO2 / nutrition overview)
+#       1. Enter Ingredients            (find recipes matching what you have at home)
+#       2. History and Recommendations. (cooking history, ratings, and ML recommendations)
+#       3. Statistics                   (cost / saved CO2 / nutrition overview)
 #
-# The Random Forest recommender lives on the History and Recommendations
-# page (see recommender.py). The Enter Ingredients page is purely a
-# fridge-cleanout search, sorting matches by ingredient overlap so the
-# user sees what they can cook with what they already have.
 #
 # To start the app, type in the terminal: streamlit run app.py
 # -----------------------------------------------------------------------------
@@ -305,8 +300,6 @@ page = st.sidebar.radio(
 # Main "search" page. Users select what they have at home, optionally
 # apply diet, time, difficulty and allergen filters, then get a list of
 # matching recipes sorted by how well they use the selected ingredients.
-# No machine learning on this page. Personalised recommendations live on
-# the History and Recommendations page.
 # -----------------------------------------------------------------------------
 
 # Only when the user has selected "🥕 Enter Ingredients" in the navigation bar 
@@ -415,7 +408,7 @@ if page == "🥕 Enter Ingredients":
     with col1:
         max_time = st.slider(
             "Maximum cooking time (minutes)",
-            min_value=10, max_value=120, value=60, step=5
+            min_value=10, max_value=50, value=50, step=5
         )
     with col2:
         difficulty = st.selectbox(
@@ -480,7 +473,7 @@ if page == "🥕 Enter Ingredients":
                     if not any(i in NON_VEGETARIAN_INGREDIENTS for i in recipe_ingredients):
                         continue
 
-                # INGREDIENT MATCH SCORING (legacy logic)
+                # INGREDIENT MATCH SCORING
                 # Count how many of the recipe's ingredients the user has
                 # selected, and how many are still missing (pantry staples
                 # like salt/oil are assumed to be at home and are excluded
@@ -528,10 +521,7 @@ if page == "🥕 Enter Ingredients":
     # SHOW RESULTS
     # Renders each matching recipe as a collapsible expander containing
     # quick stats, a colour-coded ingredient list, instructions, and a
-    # "Mark as Cooked" button. No ML / predicted ratings on this page.
-    # the search page is purely about finding what to cook with what's
-    # in the fridge. Personalised recommendations live on the History
-    # and Recommendations page.
+    # "Mark as Cooked" button.
 
     if "show_results" in st.session_state and st.session_state.show_results:
 
@@ -602,8 +592,8 @@ if page == "🥕 Enter Ingredients":
 #      love most, drawn from the ENTIRE recipe DB (not just fridge
 #      matches). Recipes already cooked 4+ times are excluded so the
 #      suggestions stay fresh.
-#   3. Model evaluation: MAE and MSE on a held-out 20% test split,
-#      the lecture's slide-55 generalization test.
+#   3. Model evaluation: MAE and MSE on a held-out 20% test split for
+#      the generalization test.
 # -----------------------------------------------------------------------------
 
 # Only when the user has selected "📖 History and Recommendations" in the
@@ -623,7 +613,7 @@ elif page == "📖 History and Recommendations":
     st.subheader("Your Cooking History")
     st.caption(
         "Rate the recipes you cooked so the recommendation model learns "
-        "your taste. Newer ratings count more strongly than older ones."
+        "your taste."
     )
 
     if len(history) == 0:
@@ -657,7 +647,7 @@ elif page == "📖 History and Recommendations":
 
     # SECTION 2: TOP 5 RECOMMENDATIONS (Random Forest)
     # The model is trained on synthetic + real history every time this
-    # page loads. We score the ENTIRE recipe DB, exclude recipes the
+    # page loads. We score the entire recipe DB, exclude recipes the
     # user has already cooked 4+ times, and show the top 5 by predicted
     # rating. Each card displays the predicted rating so the ML output
     # is visible to the user.
@@ -674,9 +664,7 @@ elif page == "📖 History and Recommendations":
     all_recipes_for_recs = load_all_recipes()
 
     # Filter out recipes the user has already cooked 4+ times so the
-    # suggestions stay fresh. We do this filter HERE (rather than passing
-    # a keyword argument into recommend_top_recipes) so the call works
-    # regardless of which version of recommender.py is deployed.
+    # suggestions stay fresh.
     cook_counts = {}
     for h_entry in history:
         rid = h_entry.get("recipe_id")
@@ -693,6 +681,7 @@ elif page == "📖 History and Recommendations":
     if not fresh_recipes:
         fresh_recipes = all_recipes_for_recs
 
+    # Run the ML model to get the top 5 recipe recommendations.
     recommendations = recommend_top_recipes(
         fresh_recipes,
         history,
@@ -725,10 +714,7 @@ elif page == "📖 History and Recommendations":
                 with col_d:
                     st.metric("Calories", f"{rec['calories']} kcal")
 
-                # Render ingredients via the shared helper. No
-                # selected_keys here, because the History page is in
-                # discovery mode rather than fridge-search mode. The
-                # user did not enter what they currently have at home.
+                # Render recipe ingredients (no fridge filter on this page).
                 render_recipe_ingredients(rec)
 
                 st.divider()
@@ -742,15 +728,11 @@ elif page == "📖 History and Recommendations":
                     today = datetime.date.today().strftime("%Y-%m-%d")
                     save_history(rec["id"], today)
                     st.success(f"'{rec_name}' added to your cooking history!")
-                    st.rerun()
+                    st.rerun()   # Rerun so the new entry shows up in the cooking history immediately.
 
     # SECTION 3: MODEL EVALUATION (held-out test split)
-    # Slide 55 of the lecture: "we need a second data set to test the
-    # generalization. If and only if the error is acceptable on this
-    # second data set, we can report success." We split the training
-    # data 80/20, fit on the 80%, and report the prediction error on
-    # the 20% the model never saw. MAE = how far off in stars on
-    # average; MSE = same idea but squared (penalises big misses).
+    # Split 80/20, train on 80%, report error on the unseen 20%.
+    # MAE = average stars off; MSE = squared version (penalises big misses).
 
     st.divider()
     st.subheader("📊 Model Accuracy")
@@ -797,7 +779,7 @@ elif page == "📖 History and Recommendations":
 # Aggregates data from the cooking history into visual statistics:
 #   - Top KPI row: number of recipes, saved CHF, saved ingredients
 #   - Bar+line chart: CO2 saved per session and cumulatively (matplotlib)
-#   - Radar chart: nutritional values for everything cooked TODAY (matplotlib)
+#   - Radar chart: nutritional values for everything cooked today (matplotlib)
 # -----------------------------------------------------------------------------
 
 # Only when the user has selected "📊 Statistics" in the navigation bar does 
