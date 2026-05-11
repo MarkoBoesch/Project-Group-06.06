@@ -4,16 +4,16 @@
 #
 # What this file does:
 # - Defines `base_ingredients`: spices & oils always assumed to be at home.
-#   These are EXCLUDED from "money saved" calculations. Only ingredients
+#   These are excluded from "money saved" calculations. Only ingredients
 #   the user actually selected on the search page count toward savings.
 # - Defines `NON_VEGAN_INGREDIENTS` and `NON_VEGETARIAN_INGREDIENTS`: lookup
-#   sets the diet filter on the search page uses to exclude recipes.
+#   sets used by the diet filter on the search page to filter recipes.
 # - Defines `INGREDIENT_PRICE_PER_KG_CHF` / `INGREDIENT_VALUE_CHF`: real
 #   Swiss supermarket prices (Migros/Coop) used by the Statistics page.
 # - Defines `ingredient_dictionary`: maps internal keys (e.g. "bell_pepper")
 #   to readable display names (e.g. "Bell Pepper") shown in the UI.
 #
-# This file contains NO logic and NO recipe data. It's pure constants.
+# This file contains no logic and no recipe data. It's pure constants.
 # All recipes themselves come from TheMealDB API (see api_loader.py) and
 # are stored in the SQLite database. The app reads recipes only from the
 # database, never from this file.
@@ -29,26 +29,13 @@
 
 
 # BASE INGREDIENTS
-# Pantry staples that we assume are always at home. The search page in app.py
-# automatically treats these as "available" without the user having to select
-# them, otherwise every recipe with salt or oil would never match.
-# Also used on the Statistics page to count "saved ingredients": only
-# non-base ingredients count, because using up salt isn't really preventing
-# food waste.
-
-# BASE INGREDIENTS (spices & oils only)
-# Rule: only things that live in the spice rack or oil shelf and are
-# virtually never "used up" or likely to spoil qualify here.
-# Everything else (vegetables, dairy, meat, pasta, eggs, etc.) is a
-# real ingredient that the user selects on the search page.
+# Pantry staples that are treated as always available in recipe matching,
+# so users do not need to select basics like salt, spices or oil.
+# They are also excluded from Statistics / "money saved" calculations,
+# because using up salt is not really preventing food waste.
 #
-# Two consequences of being in this list:
-#   1. The recipe-matching algorithm on the search page treats these as
-#      "always available", so a recipe that needs salt/cumin is never
-#      penalised for the user not ticking those boxes.
-#   2. These are EXCLUDED from the "money saved" calculation on the
-#      Statistics page, because nobody enters salt as a fridge ingredient
-#      they're trying to use up before it spoils.
+# Rule: only spices, oils and similar non-perishable basics belong here.
+# Vegetables, dairy, meat, pasta, eggs, etc. should stay selectable by the user.
 
 base_ingredients = [
     # Oils & vinegars
@@ -58,7 +45,7 @@ base_ingredients = [
     # Baking fundamentals
     "sugar", "flour", "baking_powder", "baking_soda", "cornstarch", "water",
     # Spices & dried herbs
-    "garlic",           # dried / garlic powder (fresh garlic IS selectable)
+    "garlic",           # dried / garlic powder (fresh garlic is selectable)
     "paprika",
     "cumin",
     "cinnamon",
@@ -68,7 +55,7 @@ base_ingredients = [
     "dried_herbs",      # covers oregano, thyme, basil, rosemary, etc.
     "bay_leaves",
     "turmeric",
-    "ginger_powder",    # dried; fresh ginger IS selectable as an ingredient
+    "ginger_powder",    # dried; fresh ginger is selectable as an ingredient
     "cayenne",
     "cloves",
     "allspice",
@@ -118,7 +105,7 @@ NON_VEGETARIAN_INGREDIENTS = {
 #
 # calculate_costs() in app.py reads the "amounts" field of each recipe
 # (format: "key:200g,key:3,key:0.5kg,...") and multiplies the per-kg price
-# by the actual weight used, giving a proportional cost.  Piece-sold
+# by the actual weight used, giving a proportional cost. Piece-sold
 # ingredients (eggs, lemons, avocados …) fall back to per-unit pricing when
 # the amounts field contains a plain count (no unit suffix).
 #
@@ -126,7 +113,7 @@ NON_VEGETARIAN_INGREDIENTS = {
 # (≈ a mid-range Swiss vegetable), which is intentionally conservative.
 
 INGREDIENT_PRICE_PER_KG_CHF = {
-    # ── Vegetables (CHF/kg) ──────────────────────────────────────────────────
+    # Vegetables (CHF/kg)
     "potato":        1.60,   # CHF 3.50 to 4.50 for 2.5 kg bag → ~1.60/kg
     "sweet_potato":  3.20,
     "carrot":        1.80,   # Migros Tiefpreis ~1.50 to 2.00/kg
@@ -158,7 +145,7 @@ INGREDIENT_PRICE_PER_KG_CHF = {
     "fennel":        3.50,   # 1 bulb ~400g, ~1.40
     "asparagus":    12.00,   # 500g ~6.00 (CH asparagus)
 
-    # ── Fruits (CHF/kg) ──────────────────────────────────────────────────────
+    # Fruits (CHF/kg)
     "apple":         3.60,   # Migros CH Äpfel ~3.50 to 3.80/kg
     "banana":        2.40,   # Migros ~2.20 to 2.60/kg (Tiefpreis)
     "mango":         5.00,   # ~2.50 per piece, ~500g
@@ -169,7 +156,7 @@ INGREDIENT_PRICE_PER_KG_CHF = {
     "peach":         4.00,   # ~1.00 per piece, ~250g
     "pear":          3.50,
 
-    # ── Meat & Fish (CHF/kg) ─────────────────────────────────────────────────
+    # Meat & Fish (CHF/kg)
     "chicken":       12.00,   # avg of breast (~13.80) and cheaper cuts (thighs ~10, wings ~9)
     "ground_beef":   19.50,   # M-Classic ~9.75 per 500g
     "beef":          38.00,   # steak / rump / entrecôte avg (Migros ~35-45/kg)
@@ -185,7 +172,7 @@ INGREDIENT_PRICE_PER_KG_CHF = {
     "prosciutto":    38.00,   # 100g ~3.80
     "fish":          26.00,   # generic white fish fillet (cod ~28, pollock ~22)
 
-    # ── Dairy: UNIT-PRICED items (CHF per standard unit) ───────────────────
+    # Dairy: UNIT-PRICED items (CHF per standard unit)
     # These are listed per typical purchase unit; calculate_costs()
     # will use them when the recipe amounts field gives a plain count.
     "egg":            0.45,   # 10-pack ~4.50 (Migros M-Budget)
@@ -202,7 +189,7 @@ INGREDIENT_PRICE_PER_KG_CHF = {
     "ricotta":        2.50,   # 250g
     "sour_cream":     1.80,   # 200g
 
-    # ── Dairy: also provide per-kg fallback ─────────────────────────────────
+    # Dairy: also provide per-kg fallback
     # (used when amounts are given in grams)
     "butter_kg":     11.80,   # CHF 2.95 per 250g
     "cheese_kg":     17.60,   # CHF 4.40 per 250g
@@ -214,7 +201,7 @@ INGREDIENT_PRICE_PER_KG_CHF = {
     "ricotta_kg":    10.00,
     "sour_cream_kg":  9.00,
 
-    # ── Pantry / dry goods (CHF/kg) ──────────────────────────────────────────
+    # Pantry / dry goods (CHF/kg)
     "pasta":          1.20,   # M-Budget Spaghetti 1kg
     "rice":           1.80,   # M-Budget 1kg
     "bread":          2.00,   # Ruchbrot 500g ~1.00
@@ -224,7 +211,7 @@ INGREDIENT_PRICE_PER_KG_CHF = {
     "chickpeas":      3.00,   # canned 400g ~1.20
     "tofu":           7.00,   # 400g ~2.80
 
-    # ── Sauces, oils, condiments (CHF/kg or litre) ───────────────────────────
+    # Sauces, oils, condiments (CHF/kg or litre)
     "tomato_sauce":   2.50,   # Pelati 400g ~1.00
     "vegetable_broth": 2.00,  # 1L carton ~2.00
     "olive_oil":      7.40,   # M-Classic 1L ~7.40
@@ -240,15 +227,15 @@ INGREDIENT_PRICE_PER_KG_CHF = {
     "worcestershire": 6.00,   # 150ml ~0.90
     "coconut_milk":   3.50,   # 400ml can ~1.40
 
-    # ── Piece-sold items (CHF per piece) ─────────────────────────────────────
+    # Piece-sold items (CHF per piece)
     "lemon":          0.70,   # ~0.65 to 0.75 per piece
     "lime":           0.60,
     "avocado":        1.60,   # Migros ~1.50 to 2.00 per piece
 }
 
 # BACKWARD-COMPATIBLE ALIAS
-# app.py originally imported INGREDIENT_VALUE_CHF.  We keep the old name
-# pointing at the same table so existing code keeps working unchanged.
+# Earlier versions of the app used INGREDIENT_VALUE_CHF.
+# We keep this alias so the existing code continues to work.
 INGREDIENT_VALUE_CHF = INGREDIENT_PRICE_PER_KG_CHF
 
 # INGREDIENT DICTIONARY
