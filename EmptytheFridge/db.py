@@ -154,41 +154,34 @@ def create_database():
     connection.close()
 
 
-# SEED INGREDIENT DICTIONARY
-# Fills the ingredients table with the starter display names from constants.py
-# on the first run. We do this so that the multiselect on the search page
-# already has friendly names like "Bell Pepper" available. api_loader.py
-# adds more ingredients on top whenever a new API recipe introduces one.
+# SEED / SYNC INGREDIENT DICTIONARY
+# On the first run, the ingredients table is filled with the starter display
+# names from constants.py. As a result, the multiselect on the "Enter Ingredients"
+# page in app.py has user-friendly names like "Bell Pepper". On later runs, it 
+# only adds ingredients that are missing.Existing ingredients, recipes, cooking 
+# history and ratings are not deleted or overwritten.
 #
-# We deliberately do NOT seed any recipes here. Those come exclusively
+# We deliberately do not seed any recipes here. Recipes come exclusively
 # from TheMealDB via api_loader.py.
 
 def seed_ingredients():
-    """Fills the ingredients table from constants.py on the first run."""
+    """
+    Syncs the ingredients table with constants.py.
 
-    # Imported here (inside the function) instead of at the top of the file
-    # to avoid a circular import: constants.py is a pure data file, but
-    # importing it eagerly would couple the database setup to the data
-    # module load order.
+    This only adds missing ingredients.
+    It does not delete recipes, history, ratings, or existing ingredients.
+    """
+
     from constants import ingredient_dictionary
 
     connection = get_connection()
     cursor = connection.cursor()
 
-    # Only insert ingredients if the table is currently empty. This is the
-    # "first run" check: on every later start the count is > 0 and we
-    # skip the whole block.
-    cursor.execute("SELECT COUNT(*) FROM ingredients")
-    count = cursor.fetchone()[0]
-
-    if count == 0:
-        # ingredient_dictionary is a {key: display_name} mapping in constants.py.
-        # We unpack it row by row into the ingredients table.
-        for key, name in ingredient_dictionary.items():
-            cursor.execute("""
-                INSERT INTO ingredients (key, name)
-                VALUES (?, ?)
-            """, (key, name))
+    for key, name in ingredient_dictionary.items():
+        cursor.execute("""
+            INSERT OR IGNORE INTO ingredients (key, name)
+            VALUES (?, ?)
+        """, (key, name))
 
     connection.commit()
     connection.close()
