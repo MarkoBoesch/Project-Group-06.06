@@ -13,28 +13,26 @@
 #   update its rating afterwards.
 #
 # The recipes table itself is filled exclusively by api_loader.py, which
-# fetches data from TheMealDB. This file does NOT load any hardcoded
+# fetches data from TheMealDB. This file does not load any hardcoded
 # recipes. constants.py is only used for lookup tables (display names,
 # diet sets, prices, base ingredients).
 #
-# We use SQLite because it is built directly into Python (no installation
-# needed) and stores everything in a single file (emptythefridge.db) that
-# lives next to the code.
+# We use SQLite to store everything in a single file, emptythefridge.db,
+# which lives next to the code.
 #
 # Used by app.py on:
 #   - every page (load_all_recipes, load_recipe, load_all_ingredients,
 #     load_history) to display content.
-#   - the History page (save_history, update_rating) when the user logs
-#     a cooked recipe or rates one.
+#  # - the History page in particular (save_history, update_rating), when the user logs
+#      a cooked recipe or rates one.
 # Used by api_loader.py on:
 #   - every start, since this file creates the recipes table that
 #     api_loader.py writes API recipes into.
 # -----------------------------------------------------------------------------
 
 import sqlite3
-# sqlite3 is built into Python (no pip install needed). It gives us a full
-# SQL database in a single local file, which is perfect for a small app
-# like this one.
+# sqlite3 gives us a full SQL database in a single local file, which is perfect 
+# for a small app like this one.
 
 DB_NAME = "emptythefridge.db"
 # Single shared filename used by every connection. Defined as a constant
@@ -74,7 +72,7 @@ def create_database():
     #                   "potato:200g,onion:1"). Optional.
     # - allergens:      comma-separated list of allergens, used by the diet
     #                   filter on the search page.
-    # - calories ... minerals: nutrition values used by the radar chart on
+    # - calories, etc.: nutrition values used by the radar chart on
     #                   the Statistics page.
     # - api_id:         TheMealDB's own recipe ID. Used by api_loader.py to
     #                   detect duplicates so re-running the importer doesn't
@@ -104,13 +102,9 @@ def create_database():
     """)
 
     # TABLE 2: Ingredient Dictionary
-    # Maps an internal key (e.g. "bell_pepper") to a human-readable display
-    # name (e.g. "Bell Pepper"). The multiselect on the "Enter Ingredients"
-    # page reads from this table. If a key isn't in here, the user can't
-    # select it, which is exactly why api_loader.py also writes to this
-    # table whenever it imports a new API recipe.
-    # - key is UNIQUE so INSERT OR IGNORE in api_loader.py can safely skip
-    #   duplicates.
+    # Stores the cleaned ingredient keys created by api_loader.py.
+    # The "Enter Ingredients" page in app.py reads from this table to 
+    # populate the multiselect.
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS ingredients (
             id       INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -120,11 +114,12 @@ def create_database():
     """)
 
     # TABLE 3: Cooking History
-    # One row per cooking event. The History page reads from this and the
-    # recommender uses it to decide which recipe was cooked most recently.
-    # - recipe_id: foreign-key-like reference to recipes.id (no FK constraint
-    #              for simplicity, but the JOIN in load_history relies on it).
-    # - date:      stored as a TEXT in "YYYY-MM-DD" format so chronological
+    # Stores one row each time the user logs a cooked recipe.
+    # The History page in app.py reads from this table, and the recommender uses
+    # it to identify recently cooked recipes and build recommendations.
+    # - recipe_id: foreign-key-like reference to recipes.id. No FK constraint
+    #              is used for simplicity, but the JOIN in load_history relies on it.
+    # - date:      stored as TEXT in "YYYY-MM-DD" format so chronological
     #              sorting works lexicographically.
     # - rating:    nullable on purpose. The user logs the recipe first
     #              and rates it later, so it starts as NULL.
@@ -141,9 +136,9 @@ def create_database():
     connection.commit()
     connection.close()
 
-    # MIGRATION: add used_ingredients column to existing databases that were
-    # created before this column existed. ALTER TABLE ignores the command if
-    # the column is already present (we catch the OperationalError silently).
+    # MIGRATION: add the used_ingredients column to existing databases that
+    # were created before this column existed. If the column is already present, 
+    # ALTER TABLE raises an error, which we catch silently.
     connection = get_connection()
     cursor = connection.cursor()
     try:
@@ -158,7 +153,7 @@ def create_database():
 # On the first run, the ingredients table is filled with the starter display
 # names from constants.py. As a result, the multiselect on the "Enter Ingredients"
 # page in app.py has user-friendly names like "Bell Pepper". On later runs, it 
-# only adds ingredients that are missing.Existing ingredients, recipes, cooking 
+# only adds ingredients that are missing. Existing ingredients, recipes, cooking 
 # history and ratings are not deleted or overwritten.
 #
 # We deliberately do not seed any recipes here. Recipes come exclusively
@@ -238,11 +233,9 @@ def load_all_ingredients():
 def load_history():
     """Returns the entire cooking history, newest first."""
     # JOIN with the recipes table so the caller gets the recipe name and
-    # calories in the same query, saving us from a second query
-    # for every history entry on the History and Statistics pages.
-    # ORDER BY date DESC means the most recently cooked recipe is the
-    # first element of the returned list, which is exactly what the
-    # recommender expects (it uses history_list[0] as the reference recipe).
+    # calories in the same query, saving us from a second query for every
+    # history entry on the History and Statistics pages.
+    # ORDER BY date DESC displays the newest cooked recipes first.
     connection = get_connection()
     cursor = connection.cursor()
     cursor.execute("""
@@ -296,16 +289,14 @@ def update_rating(history_id, rating):
 
 
 # AUTOMATIC SETUP ON IMPORT
-# These two calls run the moment any other file does `from db import ...`.
-# That means by the time app.py reaches its first line of UI code, the
-# database file exists, the tables are in place, and the ingredient
-# dictionary is seeded. api_loader.py then fills the recipes table from
-# TheMealDB.
+# These calls run as soon as another file does `from db import ...`.
+# This ensures that the database file exists, the tables are created,
+# and the ingredient dictionary is seeded before the app UI runs.
 #
-# Both functions are idempotent (safe to call multiple times):
-#   - create_database uses CREATE TABLE IF NOT EXISTS
-#   - seed_ingredients checks COUNT(*) before inserting
-# so re-running them on every app start has no negative side effects.
+# Both functions are safe to call multiple times:
+# - create_database uses CREATE TABLE IF NOT EXISTS, so existing tables stay untouched.
+# - seed_ingredients only adds missing ingredients and does not delete
+#   or overwrite existing ingredients, recipes, history, or ratings.
 
 create_database()
 seed_ingredients()
