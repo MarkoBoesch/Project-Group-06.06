@@ -306,22 +306,38 @@ def make_display_name(ingredient_key):
 # The ingredients table is what populates the ingredient selector on the
 # "Enter Ingredients" page in app.py. db.py seeds the table with a
 # starter set of display names. Whenever an API recipe brings in a new
-# ingredient that isn't in that starter set, we register it here so users
-# can actually select it in the multiselect.
+# ingredient that we have a canonical mapping for, we register it here
+# so users can actually select it in the multiselect.
 #
-# Without this step, users could never select API-only ingredients, so
-# those recipes would never match a search and stay invisible.
+# Ingredients without a canonical mapping (the fallback path in
+# translate_ingredient) are deliberately NOT registered — otherwise the
+# dropdown would fill up with hundreds of obscure API ingredients like
+# "Allspice Berries" or "Almond Extract" that no normal home user would
+# tick. They still get stored in each recipe's ingredients field and show
+# up in the recipe detail view, just not in the picker.
 
 def register_ingredients(ingredient_keys):
     """
-    Adds any new ingredient keys to the ingredients table.
-    If an ingredient key already exists there, it is skipped
-    (INSERT OR IGNORE handles that automatically).
+    Adds any new ingredient keys to the ingredients table, but only if the
+    key is one of our canonical internal keys (a value in INGREDIENT_MAPPING).
+    This keeps the search-page dropdown limited to ingredients users
+    actually have at home, instead of every obscure item TheMealDB
+    returns. Recipes still store all keys, so the detail view is unaffected.
     """
+    # Build the set of canonical keys once per call. It's small (under 100
+    # entries) so the membership check is effectively free.
+    canonical_keys = set(INGREDIENT_MAPPING.values())
+
     connection = get_connection()
     cursor = connection.cursor()
 
     for key in ingredient_keys:
+        # Skip anything that isn't a recognised internal key. These come
+        # from translate_ingredient()'s fallback and don't belong in the
+        # user-facing dropdown.
+        if key not in canonical_keys:
+            continue
+
         # Build a human-readable display name from the key.
         # e.g. "sweet_potato" becomes "Sweet Potato"
         display_name = make_display_name(key)
