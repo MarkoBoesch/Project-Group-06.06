@@ -167,7 +167,7 @@ DISLIKED_INGREDIENTS = {
     # Heavy / cured meats (5)
     "bacon", "sausage", "pork", "ham", "ground_beef",
     # Seafood (persona doesn't enjoy fish/seafood at all) (4)
-    "shrimp", "salmon", "tuna", "cod",
+    "shrimp", "salmon", "tuna", "fish",
     # Heavy / processed condiments (3)
     "mayonnaise", "bbq_sauce", "hot_sauce",
 }

@@ -92,8 +92,8 @@ base_ingredients = [
 NON_VEGAN_INGREDIENTS = {
     "egg", "milk", "butter", "cream", "cheese", "mozzarella", "parmesan",
     "yogurt", "cream_cheese", "feta", "ricotta", "sour_cream", "heavy_cream",
-    "chicken_breast", "ground_beef", "bacon", "pork", "salmon", "tuna",
-    "shrimp", "lamb", "turkey", "sausage", "ham", "prosciutto", "cod",
+    "chicken", "ground_beef", "beef", "bacon", "pork", "salmon", "tuna",
+    "shrimp", "lamb", "turkey", "sausage", "ham", "prosciutto", "fish",
     "honey", "mayonnaise", "worcestershire",
 }
 
@@ -103,8 +103,8 @@ NON_VEGAN_INGREDIENTS = {
 # filter. (Worcestershire is included because it traditionally contains
 # anchovies.)
 NON_VEGETARIAN_INGREDIENTS = {
-    "chicken_breast", "ground_beef", "bacon", "pork", "salmon", "tuna",
-    "shrimp", "lamb", "turkey", "sausage", "ham", "prosciutto", "cod",
+    "chicken", "ground_beef", "beef", "bacon", "pork", "salmon", "tuna",
+    "shrimp", "lamb", "turkey", "sausage", "ham", "prosciutto", "fish",
     "worcestershire",
 }
 
@@ -150,6 +150,7 @@ INGREDIENT_PRICE_PER_KG_CHF = {
     "kale":          7.00,   # 200g bag ~1.40
     "beetroot":      2.50,   # 500g ~1.25
     "spring_onion":  5.00,   # bunch ~0.80, ~160g
+    "shallot":       8.00,   # 250g net ~2.00 (Migros)
     "ginger":       12.00,   # ~1.20 per 100g piece
     "pumpkin":       2.50,
     "white_cabbage": 1.50,
@@ -169,8 +170,9 @@ INGREDIENT_PRICE_PER_KG_CHF = {
     "pear":          3.50,
 
     # ── Meat & Fish (CHF/kg) ─────────────────────────────────────────────────
-    "chicken_breast": 13.80,  # M-Budget ~13.80/kg; Coop Prix Garantie 11.50/kg
+    "chicken":       12.00,   # avg of breast (~13.80) and cheaper cuts (thighs ~10, wings ~9)
     "ground_beef":   19.50,   # M-Classic ~9.75 per 500g
+    "beef":          38.00,   # steak / rump / entrecôte avg (Migros ~35-45/kg)
     "bacon":         20.00,   # ~5.00 per 200g pack
     "pork":          18.00,   # pork shoulder/neck typical price
     "salmon":        39.00,   # fresh fillet ~3.90 per 100g
@@ -181,7 +183,7 @@ INGREDIENT_PRICE_PER_KG_CHF = {
     "sausage":       14.00,   # Bratwurst 4-pack M-Budget ~3.80 / ~270g → ~14/kg
     "ham":           18.00,   # 100g ~1.80
     "prosciutto":    38.00,   # 100g ~3.80
-    "cod":           28.00,   # fillet ~2.80/100g
+    "fish":          26.00,   # generic white fish fillet (cod ~28, pollock ~22)
 
     # ── Dairy: UNIT-PRICED items (CHF per standard unit) ───────────────────
     # These are listed per typical purchase unit; calculate_costs()
@@ -230,7 +232,7 @@ INGREDIENT_PRICE_PER_KG_CHF = {
     "soy_sauce":      7.00,   # 250ml ~1.75
     "tahini":         9.00,   # 250g ~2.25
     "pesto":         10.00,   # 190g ~1.90
-    "dijon_mustard":  5.00,   # 200g ~1.00
+    "mustard":        5.00,   # 200g Dijon ~1.00
     "honey":         14.00,   # 500g ~7.00
     "mayonnaise":     5.00,   # 265g ~1.30
     "hot_sauce":      8.00,   # 150ml ~1.20
@@ -268,16 +270,17 @@ ingredient_dictionary = {
     "corn": "Corn", "peas": "Peas", "green_beans": "Green Beans",
     "eggplant": "Eggplant", "sweet_potato": "Sweet Potato", "avocado": "Avocado",
     "asparagus": "Asparagus", "kale": "Kale", "beetroot": "Beetroot",
-    "spring_onion": "Spring Onion", "ginger": "Ginger", "pumpkin": "Pumpkin",
+    "spring_onion": "Spring Onion", "shallot": "Shallot", "ginger": "Ginger", "pumpkin": "Pumpkin",
     "white_cabbage": "White Cabbage", "red_cabbage": "Red Cabbage",
     "fennel": "Fennel", "lemon": "Lemon", "lime": "Lime", "apple": "Apple",
     "banana": "Banana", "mango": "Mango", "strawberry": "Strawberry",
     "blueberry": "Blueberry", "raspberry": "Raspberry", "cherry": "Cherry",
     "peach": "Peach", "pear": "Pear",
-    "chicken_breast": "Chicken Breast", "ground_beef": "Ground Beef",
-    "bacon": "Bacon", "pork": "Pork", "salmon": "Salmon", "tuna": "Tuna",
+    "chicken": "Chicken", "ground_beef": "Ground Beef",
+    "beef": "Beef", "bacon": "Bacon", "pork": "Pork",
+    "salmon": "Salmon", "tuna": "Tuna",
     "shrimp": "Shrimp", "lamb": "Lamb", "turkey": "Turkey", "sausage": "Sausage",
-    "ham": "Ham", "prosciutto": "Prosciutto", "cod": "Cod",
+    "ham": "Ham", "prosciutto": "Prosciutto", "fish": "Fish",
     "egg": "Egg", "milk": "Milk", "butter": "Butter", "cream": "Cream",
     "cheese": "Cheese", "mozzarella": "Mozzarella", "parmesan": "Parmesan",
     "yogurt": "Yogurt", "cream_cheese": "Cream Cheese", "feta": "Feta",
@@ -288,7 +291,7 @@ ingredient_dictionary = {
     "olive_oil": "Olive Oil", "oil": "Oil", "salt": "Salt", "pepper": "Pepper",
     "sugar": "Sugar", "vinegar": "Vinegar", "soy_sauce": "Soy Sauce",
     "water": "Water", "baking_powder": "Baking Powder", "coconut_milk": "Coconut Milk",
-    "tahini": "Tahini", "pesto": "Pesto", "dijon_mustard": "Dijon Mustard",
+    "tahini": "Tahini", "pesto": "Pesto", "mustard": "Mustard",
     "honey": "Honey", "mayonnaise": "Mayonnaise", "hot_sauce": "Hot Sauce",
     "bbq_sauce": "BBQ Sauce", "worcestershire": "Worcestershire Sauce",
 }

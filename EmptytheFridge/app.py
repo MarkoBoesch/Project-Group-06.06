@@ -61,7 +61,7 @@ HIDDEN_FROM_DROPDOWN = {
     "vinegar",
     "flour",
     "bbq_sauce",
-    "dijon_mustard",
+    "mustard",
     "hot_sauce",
     "mayonnaise",
     "worcestershire",
