@@ -930,3 +930,164 @@ elif page == "📊 Statistics":
         ax_co2.set_ylabel("kg CO2")
         ax_co2.legend(loc="upper left")
 
+        # Y-AXIS RANGE
+        # Use a minimum ceiling of 25 kg, with ~30% headroom above the
+        # current cumulative total for visual appeal.
+        current_max = max(cook_cumulative) if cook_cumulative else 0
+        y_max = max(25, current_max * 1.3)
+        ax_co2.set_ylim(0, y_max)
+
+        # Format the x-axis as proper dates. The locator picks roughly 8
+        # tick labels regardless of how wide the window grows, so a 7-day
+        # chart shows every day while a 60-day chart shows every ~week.
+        ax_co2.xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m-%d"))
+        tick_step = max(1, len(all_dates) // 8)
+        ax_co2.xaxis.set_major_locator(mdates.DayLocator(interval=tick_step))
+        plt.setp(ax_co2.get_xticklabels(), rotation=30, ha="right")
+
+        fig_co2.tight_layout()
+
+        st.pyplot(fig_co2)
+
+        # DAILY NUTRITION RADAR CHART (matplotlib)
+        # Sums up the nutritional values of all recipes cooked TODAY and
+        # plots them as percentages of the standard daily intake.
+        # The outer edge of the radar = 100% of the daily intake.
+
+        st.divider()
+        st.subheader("🕸️ Today's Nutritional Values")
+        st.caption("Combined nutritional values of all recipes cooked today. Outer edge = 100% daily intake.")
+
+        # Filter the history down to entries with today's date.
+        today = datetime.date.today().strftime("%Y-%m-%d")
+        today_entries = [entry for entry in history if entry["date"] == today]
+
+        if len(today_entries) == 0:
+            st.info("No recipes cooked today yet. Cook something and come back!")
+        else:
+            # Sum each nutrient across every recipe cooked today, treating None as 0.
+            calories_today = 0
+            protein_today = 0
+            carbs_today = 0
+            fat_today = 0
+            fiber_today = 0
+            vitamins_today = 0
+            minerals_today = 0
+
+            today_names = []
+
+            for entry in today_entries:
+                recipe = load_recipe(entry["recipe_id"])
+                if recipe:
+                    calories_today += (recipe["calories"] or 0)
+                    protein_today += (recipe["protein"] or 0)
+                    carbs_today += (recipe["carbohydrates"] or 0)
+                    fat_today += (recipe["fat"] or 0)
+                    fiber_today += (recipe["fiber"] or 0)
+                    vitamins_today += (recipe["vitamins"] or 0)
+                    minerals_today += (recipe["minerals"] or 0)
+                    today_names.append(recipe["name"])
+
+            st.write("Cooked today:", ", ".join(today_names))
+
+            # ── DAILY REFERENCE VALUES ────────────────────────────────────
+            # Source: Swiss Federal Food Safety and Veterinary Office (BLV)
+            #   "Schweizer Referenzwerte für die Nährstoffzufuhr" (2022)
+            #   blv.admin.ch, Hauptnährstoffe (Protein, Kohlenhydrate, Fett)
+            #   Confirmed against WHO Healthy Diet fact-sheet (Jan 2026)
+            #   who.int/news-room/fact-sheets/detail/healthy-diet
+            #
+            # We use the midpoint between the BLV sedentary-adult targets
+            # for men (2 200 kcal, 70 kg reference) and women (1 800 kcal,
+            # 57 kg reference) to get a gender-neutral reference person.
+            #
+            #   Nutrient   Man    Woman   Average used here
+            #   ─────────────────────────────────────────────
+            #   Calories   2200   1800    2000 kcal
+            #   Protein      58     47      52 g  (0.83 g/kg BW/day)
+            #   Carbs       275    225     250 g  (45-60% of energy, BLV)
+            #   Fat          69     57      63 g  (20-35% of energy, BLV)
+            #   Fiber        30     25      30 g  (BLV/SGE adult target)
+            #
+            # Vitamins and Minerals are stored on a 0 to 100 scale by the
+            # recipe data (TheMealDB estimate), so 100 = full daily cover.
+
+            DAILY_CALORIES = 2000   # kcal
+            DAILY_PROTEIN  =   52   # g
+            DAILY_CARBS    =  250   # g
+            DAILY_FAT      =   63   # g
+            DAILY_FIBER    =   30   # g
+
+            # Convert absolute totals into % of daily reference.
+            # Capped at 100 so the spider chart never draws outside its circle.
+            calories_pct = min(100, round(calories_today / DAILY_CALORIES * 100))
+            protein_pct  = min(100, round(protein_today  / DAILY_PROTEIN  * 100))
+            carbs_pct    = min(100, round(carbs_today    / DAILY_CARBS    * 100))
+            fat_pct      = min(100, round(fat_today      / DAILY_FAT      * 100))
+            fiber_pct    = min(100, round(fiber_today    / DAILY_FIBER    * 100))
+            vitamins_pct = min(100, vitamins_today)
+            minerals_pct = min(100, minerals_today)
+
+            categories = ["Calories", "Protein", "Carbs", "Fat", "Fiber", "Vitamins", "Minerals"]
+            values = [
+                calories_pct, protein_pct, carbs_pct, fat_pct,
+                fiber_pct, vitamins_pct, minerals_pct
+            ]
+
+            # Build the radar chart manually with matplotlib's polar projection.
+            # Each category occupies one slice of the circle. We compute the
+            # angle for every category and repeat the first value at the end
+            # so the polygon closes cleanly.
+            import math
+
+            num_vars = len(categories)
+            angles = [n / float(num_vars) * 2 * math.pi for n in range(num_vars)]
+            angles_closed = angles + [angles[0]]
+            values_closed = values + [values[0]]
+
+            fig_radar, ax_radar = plt.subplots(
+                figsize=(4, 4),
+                subplot_kw=dict(polar=True)
+            )
+
+            # Draw the green-filled polygon plus its outline.
+            ax_radar.plot(angles_closed, values_closed, color="green", linewidth=2)
+            ax_radar.fill(angles_closed, values_closed, color="green", alpha=0.2)
+
+            # Place category labels around the circle and fix the radial
+            # axis at 0-100% so different days are visually comparable.
+            ax_radar.set_xticks(angles)
+            ax_radar.set_xticklabels(categories, fontsize=9)
+            ax_radar.set_ylim(0, 100)
+            ax_radar.set_yticks([20, 40, 60, 80, 100])
+            ax_radar.set_yticklabels(["20%", "40%", "60%", "80%", "100%"], fontsize=8)
+
+            fig_radar.tight_layout()
+
+            # Render the radar chart in the middle of three columns so it
+            # only takes up ~1/3 of the page width instead of expanding
+            # to the full width of the main container.
+            radar_left, radar_center, radar_right = st.columns([1, 2, 1])
+            with radar_center:
+                st.pyplot(fig_radar)
+
+            # Detail breakdown below the chart.
+            st.write("Detail view (% of daily reference — BLV/WHO avg adult):")
+            st.caption(
+                "Daily targets: 2 000 kcal · 52 g protein · 250 g carbs · "
+                "63 g fat · 30 g fiber  "
+                "_(Source: BLV Schweizer Referenzwerte 2022, avg. man/woman)_"
+            )
+
+            col_a, col_b = st.columns(2)
+            with col_a:
+                st.write(f"🔥 Calories: {calories_pct}% ({calories_today} kcal)")
+                st.write(f"💪 Protein: {protein_pct}% ({protein_today}g)")
+                st.write(f"🍞 Carbs: {carbs_pct}% ({carbs_today}g)")
+                st.write(f"🧈 Fat: {fat_pct}% ({fat_today}g)")
+            with col_b:
+                st.write(f"🌾 Fiber: {fiber_pct}% ({fiber_today}g)")
+                st.write(f"🍋 Vitamins: {vitamins_pct}%")
+                st.write(f"⚡ Minerals: {minerals_pct}%")
+
+
