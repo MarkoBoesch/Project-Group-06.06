@@ -324,8 +324,8 @@ def register_ingredients(ingredient_keys):
     actually have at home, instead of every obscure item TheMealDB
     returns. Recipes still store all keys, so the detail view is unaffected.
     """
-    # Build the set of canonical keys once per call. It's small (under 100
-    # entries) so the membership check is effectively free.
+
+    # Build the set of canonical ingredient keys to check against.
     canonical_keys = set(INGREDIENT_MAPPING.values())
 
     connection = get_connection()
@@ -562,11 +562,9 @@ def load_from_themealdb(max_recipes=200):
                     continue
 
                 # PARSE INGREDIENTS AND AMOUNTS
-                # TheMealDB stores ingredients in 20 numbered fields:
-                # strIngredient1, strIngredient2, ..., strIngredient20
-                # and their amounts in strMeasure1, strMeasure2, ...
-                # Unused slots are empty strings, which is how we know
-                # where the ingredient list ends.
+                # TheMealDB stores ingredients across 20 numbered field pairs
+                # (strIngredient1/strMeasure1 ... strIngredient20/strMeasure20).
+                # Unused slots are empty strings, which we skip.
                 ingredient_keys = []
                 amount_parts = []
 
@@ -574,10 +572,8 @@ def load_from_themealdb(max_recipes=200):
                     ingredient_name = meal.get(f"strIngredient{i}", "")
                     amount          = meal.get(f"strMeasure{i}", "")
 
-                    # Empty / whitespace strings mean there are no more
-                    # ingredients in this recipe. We can't break here
-                    # though, because some recipes have gaps (slot 5 empty,
-                    # slot 6 filled), so we just skip the empty ones.
+                    # Skip empty / whitespace slots. Some recipes have gaps
+                    # (slot 5 empty, slot 6 filled), so we can't break out early.
                     if ingredient_name and ingredient_name.strip():
                         key = translate_ingredient(ingredient_name)
                         ingredient_keys.append(key)
@@ -589,7 +585,7 @@ def load_from_themealdb(max_recipes=200):
                             amount_parts.append(f"{key}:{amount.strip()}")
 
                 # Skip recipes that have no recognisable ingredients.
-                # they would never match a search anyway.
+                # They would never match a search anyway.
                 if not ingredient_keys:
                     continue
 
@@ -599,9 +595,8 @@ def load_from_themealdb(max_recipes=200):
                 nutrition = estimate_nutrition(ingredient_keys)
                 allergens = detect_allergens(ingredient_keys)
 
-                # Estimate cooking time and difficulty from the number of
-                # ingredients. Crude but surprisingly accurate: short
-                # ingredient lists tend to mean simple, fast recipes.
+                # Estimate cooking time and difficulty from the ingredient count.
+                # Short lists are assumed to be simple, fast recipes.
                 if len(ingredient_keys) <= 5:
                     time_minutes = 20
                     difficulty   = "easy"
