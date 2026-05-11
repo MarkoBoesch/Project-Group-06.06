@@ -6,23 +6,24 @@
 # - Turns every recipe into a numerical feature vector (ingredients +
 #   vegetarian/vegan flags + preparation time + difficulty).
 # - Generates 60 synthetic rating entries representing one realistic user
-#   taste profile so the model has data to learn from BEFORE the real user
+#   taste profile so the model has data to learn from before the real user
 #   has rated anything ("cold-start" problem).
-# - Trains a Random Forest regressor (sklearn) on those entries plus any
-#   real ratings the user has given via the History page.
+# - Trains a Random Forest regressor (sklearn) on those preliminary entries 
+#   plus any real ratings the user has given via the History page.
 # - Newer ratings are weighted more strongly than older ratings, so the
 #   model gradually shifts toward the real user's taste as data accumulates.
-# - Predicts a 1-5 star rating for every candidate recipe so the search
-#   page can rank recipes by "what the user is most likely to enjoy".
-# - Evaluates the model on a held-out 20% test split (slide 55 of the
-#   lecture) and reports Mean Absolute Error (MAE) and Mean Squared Error
-#   (MSE) so the user can see how reliable the predictions actually are.
+# - Predicts a 1-5 star rating for every candidate recipe so the history and 
+#   recommendations page can rank recipes by "what the user is most likely to enjoy".
+# - Evaluates the model on a held-out 20% test split and reports Mean Absolute Error
+#   (MAE) and Mean Squared Error (MSE) so the user can see how reliable the 
+#   predictions actually are.
 #
 # Used by app.py on:
-#   - the "Enter Ingredients" search page (recommend_top_recipes), where
-#     the top 5 ranked recipes are shown after the user clicks "Find Recipes".
-#   - the "Enter Ingredients" search page (evaluate_recommender), where
-#     the model's accuracy metrics are shown above the recommendations.
+#   - the "History and Recommendations" page (recommend_top_recipes), where
+#     the top 5 ranked recipes are shown to the user.
+#   - the "History and Recommendations" page (evaluate_recommender), where
+#     the model's accuracy metrics (MAE, MSE) are shown alongside the
+#     recommendations.
 # -----------------------------------------------------------------------------
 
 import numpy as np
@@ -33,12 +34,11 @@ from sklearn.ensemble import RandomForestRegressor
 # RandomForestRegressor predicts a continuous number (here: a star rating
 # between 1 and 5). It works by training many small decision trees on
 # different random subsets of the data and averaging their predictions.
-# This averaging makes the prediction more reliable than a single tree
-# and is exactly the "wisdom of the crowd" effect we covered in the lecture.
+# This averaging makes the prediction more reliable than a single tree.
 
 from sklearn.model_selection import train_test_split
 # train_test_split is the standard sklearn helper for splitting a dataset
-# into training and test halves. The lecture uses it on slide 59.
+# into training and test halves.
 
 from sklearn.metrics import mean_absolute_error, mean_squared_error
 # Two textbook metrics for regression problems. MAE is in stars and easy
@@ -81,8 +81,7 @@ def build_recipe_vector(recipe, all_ingredient_keys):
     recipe_ingredients = [i.strip() for i in recipe["ingredients"].split(",")]
 
     # Multi-hot ingredient encoding: one column per known ingredient,
-    # 1 if this recipe contains it, 0 otherwise. Identical to the lecture's
-    # "feature representation" idea (slide 47).
+    # 1 if this recipe contains it, 0 otherwise.
     ingredient_flags = []
     for key in all_ingredient_keys:
         if key in recipe_ingredients:
@@ -107,7 +106,7 @@ def build_recipe_vector(recipe, all_ingredient_keys):
     time_minutes = recipe["time_minutes"] if recipe["time_minutes"] else 30
     difficulty_num = DIFFICULTY_MAP.get(recipe["difficulty"], 2)
 
-    # Combine everything into a single numeric vector. The order MUST be
+    # Combine everything into a single numeric vector. The order must be
     # identical for every recipe. That's why we use the master ingredient
     # list above.
     features = ingredient_flags + [is_vegetarian, is_vegan,
@@ -141,7 +140,7 @@ def collect_all_ingredient_keys(all_recipes):
 # We keep the persona to 30 ingredients total (18 loved + 12 disliked).
 # The split is intentional:
 #   - More loved than disliked because the recommendations are mostly
-#     about deciding what to RECOMMEND. The model needs more positive
+#     about deciding what to recommend. The model needs more positive
 #     signal than negative signal to rank recipes well.
 #   - Disliked stays small but covers the clearly-avoided categories
 #     (heavy meats, seafood) which is enough to push those recipes down.
@@ -209,7 +208,7 @@ def generate_synthetic_history(all_recipes, rng_seed=42):
 
     # Sort by score (highest first) and convert the score into a star rating.
     # We split the recipe list into 5 buckets so we get a healthy mix of
-    # ratings from 1 to 5. The model NEEDS to see low ratings too,
+    # ratings from 1 to 5. The model needs to see low ratings too,
     # otherwise it can't learn what "I won't like this" looks like.
     scored.sort(key=lambda x: x[1], reverse=True)
 
@@ -226,8 +225,9 @@ def generate_synthetic_history(all_recipes, rng_seed=42):
         bucket = scored[start:end]
 
         # Sample up to target_per_bucket recipes from this bucket. If the
-        # database is small and the bucket has fewer than 12 entries, we
-        # take whatever is there.
+        # recipe database is unusually small (fewer than ~60 recipes total),
+        # a bucket may have fewer than 12 entries, in which case we take
+        # whatever is there.
         sample_size = min(target_per_bucket, len(bucket))
         if sample_size == 0:
             continue
@@ -267,7 +267,7 @@ def build_sample_weights(history):
     # come first, newer entries come last.
     sorted_history = sorted(history, key=lambda h: h["date"])
 
-    # Build a {entry_position_in_original_list: rank} lookup.
+    # Build a lookup from each history entry to its date rank.
     # rank 0 = oldest, rank n-1 = newest.
     rank_by_id = {}
     for rank, entry in enumerate(sorted_history):
@@ -275,7 +275,7 @@ def build_sample_weights(history):
         rank_by_id[id(entry)] = rank
 
     # Map each rank to a weight between 1.0 (oldest) and 3.0 (newest).
-    # A linear scale is simple and easy to explain in the video.
+    # A linear scale is simple and easy to explain.
     weights = []
     for entry in history:
         rank = rank_by_id[id(entry)]
@@ -289,10 +289,11 @@ def build_sample_weights(history):
 
 
 # BUILD X (features) AND y (ratings) FROM A HISTORY LIST
-# Pulled out into its own helper because we need to do this in three
-# places: when training the production model, when evaluating the model
-# on a held-out test split, and when filtering valid entries before
-# weighting them.
+# Pulled out into its own helper because we need this in two places:
+# when training the production model and when evaluating the model
+# on a held-out test split. The function also returns valid_history
+# (the entries whose recipe still exists in the database) so that
+# sample_weights can be aligned with the rows in X and y.
 
 def build_X_y(history, all_recipes, all_ingredient_keys):
     """
@@ -344,7 +345,7 @@ def train_recommender(real_history, all_recipes):
     synthetic_history = generate_synthetic_history(all_recipes)
 
     # Only keep real history entries that actually have a rating.
-    # unrated entries can't be used as training labels.
+    # Unrated entries can't be used as training labels.
     rated_real_history = [h for h in real_history if h.get("rating")]
 
     combined_history = synthetic_history + rated_real_history
@@ -374,10 +375,9 @@ def train_recommender(real_history, all_recipes):
 
 
 # EVALUATE THE MODEL ON A HELD-OUT TEST SPLIT
-# This is the lecture's "generalization test" (slides 13-17 and 55).
 # We split the available data 80/20 with sklearn's train_test_split,
 # fit a fresh Random Forest on the 80% training portion, and use the
-# 20% test portion (which the model has NEVER seen) to compute two
+# 20% test portion (which the model has never seen) to compute two
 # standard regression metrics:
 #
 #   MAE = Mean Absolute Error
@@ -414,9 +414,8 @@ def evaluate_recommender(real_history, all_recipes, test_size=0.2,
     X, y, valid_history = build_X_y(combined_history, all_recipes,
                                     all_ingredient_keys)
 
-    # If there aren't enough samples to split, return None values so the
-    # UI can show a friendly "not enough data yet" message. We need at
-    # least 5 samples to make an 80/20 split sensible.
+    # Safety check: bail out with None if there aren't enough samples to
+    # split. The UI will show a "not enough data yet" message.
     if len(y) < 5:
         return None, None, 0
 
@@ -432,7 +431,7 @@ def evaluate_recommender(real_history, all_recipes, test_size=0.2,
         random_state=random_state,
     )
 
-    # Fit a FRESH model on only the training portion. Important: this
+    # Fit a seperate model on only the training portion. Important: this
     # is a separate model from the production one. We don't want to
     # contaminate the real predictions with the test data.
     eval_model = RandomForestRegressor(
@@ -472,9 +471,9 @@ def recommend_top_recipes(candidate_recipes, real_history, all_recipes,
                         responsible for any pre-filtering (e.g. excluding
                         recipes cooked too often).
     real_history      : the user's actual cooking history from db.py.
-                        Used to TRAIN the model, not to filter candidates.
+                        Used to train the model, not to filter candidates.
     all_recipes       : the full recipe database. Needed so the master
-                        ingredient list is built from ALL recipes, not
+                        ingredient list is built from all recipes, not
                         just the candidates. This keeps the feature
                         vector consistent across calls.
     num_recommendations: how many top picks to return (default 5).
