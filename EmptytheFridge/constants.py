@@ -4,7 +4,7 @@
 #
 # What this file does:
 # - Defines `base_ingredients`: spices & oils always assumed to be at home.
-#   These are EXCLUDED from "money saved" calculations — only ingredients
+#   These are EXCLUDED from "money saved" calculations. Only ingredients
 #   the user actually selected on the search page count toward savings.
 # - Defines `NON_VEGAN_INGREDIENTS` and `NON_VEGETARIAN_INGREDIENTS`: lookup
 #   sets the diet filter on the search page uses to exclude recipes.
@@ -13,7 +13,7 @@
 # - Defines `ingredient_dictionary`: maps internal keys (e.g. "bell_pepper")
 #   to readable display names (e.g. "Bell Pepper") shown in the UI.
 #
-# This file contains NO logic and NO recipe data — it's pure constants.
+# This file contains NO logic and NO recipe data. It's pure constants.
 # All recipes themselves come from TheMealDB API (see api_loader.py) and
 # are stored in the SQLite database. The app reads recipes only from the
 # database, never from this file.
@@ -31,7 +31,7 @@
 # BASE INGREDIENTS
 # Pantry staples that we assume are always at home. The search page in app.py
 # automatically treats these as "available" without the user having to select
-# them — otherwise every recipe with salt or oil would never match.
+# them, otherwise every recipe with salt or oil would never match.
 # Also used on the Statistics page to count "saved ingredients": only
 # non-base ingredients count, because using up salt isn't really preventing
 # food waste.
@@ -39,7 +39,7 @@
 # BASE INGREDIENTS (spices & oils only)
 # Rule: only things that live in the spice rack or oil shelf and are
 # virtually never "used up" or likely to spoil qualify here.
-# Everything else — vegetables, dairy, meat, pasta, eggs, etc. — is a
+# Everything else (vegetables, dairy, meat, pasta, eggs, etc.) is a
 # real ingredient that the user selects on the search page.
 #
 # Two consequences of being in this list:
@@ -83,7 +83,7 @@ base_ingredients = [
 # the results.
 #
 # We use Python sets (not lists) because membership lookups (`x in set`)
-# are O(1) instead of O(n) — and the filter runs over every recipe on
+# are O(1) instead of O(n), and the filter runs over every recipe on
 # every search.
 
 
@@ -97,7 +97,7 @@ NON_VEGAN_INGREDIENTS = {
     "honey", "mayonnaise", "worcestershire",
 }
 
-# Ingredients that are NOT vegetarian: meat and fish only — dairy and eggs
+# Ingredients that are NOT vegetarian: meat and fish only. Dairy and eggs
 # are fine for vegetarians, so they are NOT in this set.
 # A recipe with any of these is hidden when the user picks the "Vegetarian"
 # filter. (Worcestershire is included because it traditionally contains
@@ -127,15 +127,15 @@ NON_VEGETARIAN_INGREDIENTS = {
 
 INGREDIENT_PRICE_PER_KG_CHF = {
     # ── Vegetables (CHF/kg) ──────────────────────────────────────────────────
-    "potato":        1.60,   # CHF 3.50–4.50 for 2.5 kg bag → ~1.60/kg
+    "potato":        1.60,   # CHF 3.50 to 4.50 for 2.5 kg bag → ~1.60/kg
     "sweet_potato":  3.20,
-    "carrot":        1.80,   # Migros Tiefpreis ~1.50–2.00/kg
+    "carrot":        1.80,   # Migros Tiefpreis ~1.50 to 2.00/kg
     "celery":        3.50,   # bunch ~1.50, ~430g → ~3.50/kg
     "onion":         1.50,
     "garlic":        8.00,   # ~1.00 per 125g bulb
-    "tomato":        3.50,   # CHF 2.50–4.50/kg depending on variety
+    "tomato":        3.50,   # CHF 2.50 to 4.50/kg depending on variety
     "zucchini":      3.20,
-    "bell_pepper":   5.00,   # ~1.50–2.00 per piece, ~300–400g
+    "bell_pepper":   5.00,   # ~1.50 to 2.00 per piece, ~300 to 400g
     "spinach":       8.00,   # 200g bag ~1.60
     "broccoli":      3.50,   # ~1 head ~500g → ~2.00 → ~4.00/kg; avg 3.50
     "mushroom":      9.00,   # 400g ~3.50
@@ -158,8 +158,8 @@ INGREDIENT_PRICE_PER_KG_CHF = {
     "asparagus":    12.00,   # 500g ~6.00 (CH asparagus)
 
     # ── Fruits (CHF/kg) ──────────────────────────────────────────────────────
-    "apple":         3.60,   # Migros CH Äpfel ~3.50–3.80/kg
-    "banana":        2.40,   # Migros ~2.20–2.60/kg (Tiefpreis)
+    "apple":         3.60,   # Migros CH Äpfel ~3.50 to 3.80/kg
+    "banana":        2.40,   # Migros ~2.20 to 2.60/kg (Tiefpreis)
     "mango":         5.00,   # ~2.50 per piece, ~500g
     "strawberry":    8.00,   # 500g ~4.00
     "blueberry":    14.00,   # 250g ~3.50
@@ -183,7 +183,7 @@ INGREDIENT_PRICE_PER_KG_CHF = {
     "prosciutto":    38.00,   # 100g ~3.80
     "cod":           28.00,   # fillet ~2.80/100g
 
-    # ── Dairy – UNIT-PRICED items (CHF per standard unit) ───────────────────
+    # ── Dairy: UNIT-PRICED items (CHF per standard unit) ───────────────────
     # These are listed per typical purchase unit; calculate_costs()
     # will use them when the recipe amounts field gives a plain count.
     "egg":            0.45,   # 10-pack ~4.50 (Migros M-Budget)
@@ -200,7 +200,7 @@ INGREDIENT_PRICE_PER_KG_CHF = {
     "ricotta":        2.50,   # 250g
     "sour_cream":     1.80,   # 200g
 
-    # ── Dairy – also provide per-kg fallback ─────────────────────────────────
+    # ── Dairy: also provide per-kg fallback ─────────────────────────────────
     # (used when amounts are given in grams)
     "butter_kg":     11.80,   # CHF 2.95 per 250g
     "cheese_kg":     17.60,   # CHF 4.40 per 250g
@@ -239,9 +239,9 @@ INGREDIENT_PRICE_PER_KG_CHF = {
     "coconut_milk":   3.50,   # 400ml can ~1.40
 
     # ── Piece-sold items (CHF per piece) ─────────────────────────────────────
-    "lemon":          0.70,   # ~0.65–0.75 per piece
+    "lemon":          0.70,   # ~0.65 to 0.75 per piece
     "lime":           0.60,
-    "avocado":        1.60,   # Migros ~1.50–2.00 per piece
+    "avocado":        1.60,   # Migros ~1.50 to 2.00 per piece
 }
 
 # BACKWARD-COMPATIBLE ALIAS

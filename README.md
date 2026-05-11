@@ -10,7 +10,7 @@ EmptytheFridge/
 ├── app.py              # Main Streamlit app (UI, pages, navigation)
 ├── db.py               # SQLite setup + read/write functions
 ├── api_loader.py       # TheMealDB API loader (fetch, clean, save recipes)
-├── recommender.py      # ML-based recommendations (scikit-learn cosine similarity)
+├── recommender.py      # ML-based recommendations (scikit-learn Random Forest)
 ├── constants.py        # Lookup tables (pantry staples, diet sets, prices, display names)
 ├── requirements.txt    # Python dependencies
 └── README.md           # This file

@@ -14,7 +14,7 @@
 #
 # The recipes table itself is filled exclusively by api_loader.py, which
 # fetches data from TheMealDB. This file does NOT load any hardcoded
-# recipes — constants.py is only used for lookup tables (display names,
+# recipes. constants.py is only used for lookup tables (display names,
 # diet sets, prices, base ingredients).
 #
 # We use SQLite because it is built directly into Python (no installation
@@ -32,7 +32,7 @@
 # -----------------------------------------------------------------------------
 
 import sqlite3
-# sqlite3 is built into Python — no pip install needed. It gives us a full
+# sqlite3 is built into Python (no pip install needed). It gives us a full
 # SQL database in a single local file, which is perfect for a small app
 # like this one.
 
@@ -53,7 +53,7 @@ def get_connection():
 
 # CREATE DATABASE
 # Builds the three tables the app needs. CREATE TABLE IF NOT EXISTS means
-# this is safe to call on every run — the tables are only created once,
+# this is safe to call on every run. The tables are only created once,
 # and on later starts SQLite simply does nothing.
 
 def create_database():
@@ -68,7 +68,7 @@ def create_database():
     #                   doesn't have to manage IDs itself.
     # - ingredients:    comma-separated list of ingredient keys. We store it
     #                   as a string instead of a separate join table to keep
-    #                   the schema simple — the recommender splits it back
+    #                   the schema simple. The recommender splits it back
     #                   into a list when it needs to.
     # - amounts:        comma-separated "key:amount" pairs (e.g.
     #                   "potato:200g,onion:1"). Optional.
@@ -106,7 +106,7 @@ def create_database():
     # TABLE 2: Ingredient Dictionary
     # Maps an internal key (e.g. "bell_pepper") to a human-readable display
     # name (e.g. "Bell Pepper"). The multiselect on the "Enter Ingredients"
-    # page reads from this table — if a key isn't in here, the user can't
+    # page reads from this table. If a key isn't in here, the user can't
     # select it, which is exactly why api_loader.py also writes to this
     # table whenever it imports a new API recipe.
     # - key is UNIQUE so INSERT OR IGNORE in api_loader.py can safely skip
@@ -126,7 +126,7 @@ def create_database():
     #              for simplicity, but the JOIN in load_history relies on it).
     # - date:      stored as a TEXT in "YYYY-MM-DD" format so chronological
     #              sorting works lexicographically.
-    # - rating:    nullable on purpose — the user logs the recipe first
+    # - rating:    nullable on purpose. The user logs the recipe first
     #              and rates it later, so it starts as NULL.
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS history (
@@ -150,7 +150,7 @@ def create_database():
         cursor.execute("ALTER TABLE history ADD COLUMN used_ingredients TEXT")
         connection.commit()
     except Exception:
-        pass  # column already exists — nothing to do
+        pass  # column already exists, nothing to do
     connection.close()
 
 
@@ -160,7 +160,7 @@ def create_database():
 # already has friendly names like "Bell Pepper" available. api_loader.py
 # adds more ingredients on top whenever a new API recipe introduces one.
 #
-# We deliberately do NOT seed any recipes here — those come exclusively
+# We deliberately do NOT seed any recipes here. Those come exclusively
 # from TheMealDB via api_loader.py.
 
 def seed_ingredients():
@@ -176,7 +176,7 @@ def seed_ingredients():
     cursor = connection.cursor()
 
     # Only insert ingredients if the table is currently empty. This is the
-    # "first run" check — on every later start the count is > 0 and we
+    # "first run" check: on every later start the count is > 0 and we
     # skip the whole block.
     cursor.execute("SELECT COUNT(*) FROM ingredients")
     count = cursor.fetchone()[0]
@@ -245,7 +245,7 @@ def load_all_ingredients():
 def load_history():
     """Returns the entire cooking history, newest first."""
     # JOIN with the recipes table so the caller gets the recipe name and
-    # calories in the same query — saves us from running a second query
+    # calories in the same query, saving us from a second query
     # for every history entry on the History and Statistics pages.
     # ORDER BY date DESC means the most recently cooked recipe is the
     # first element of the returned list, which is exactly what the

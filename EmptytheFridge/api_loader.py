@@ -181,7 +181,7 @@ def make_display_name(ingredient_key):
     Turns an internal key into a readable display name for the ingredient selector.
     Example: "chicken_breast"  ->  "Chicken Breast"
     """
-    # title() capitalises the first letter of every word — good enough for
+    # title() capitalises the first letter of every word, good enough for
     # most ingredient names. Edge cases like "olive oil" come out fine.
     return ingredient_key.replace("_", " ").title()
 
@@ -235,7 +235,7 @@ def detect_allergens(ingredient_keys):
     allergens = []
 
     # These four lists cover the most common allergen filters in the app.
-    # They are intentionally short and conservative — if an ingredient isn't
+    # They are intentionally short and conservative. If an ingredient isn't
     # in here, we simply don't tag the allergen rather than risk false alarms.
     gluten_ingredients  = ["flour", "pasta", "bread", "oats"]
     dairy_ingredients   = ["milk", "butter", "cream", "cheese", "mozzarella", "parmesan", "yogurt", "cream_cheese"]
@@ -285,7 +285,7 @@ def estimate_nutrition(ingredient_keys):
     vitamins and minerals.
     """
     # Add up calories for every recognised ingredient.
-    # Ingredients not in our table contribute 0 calories — that's fine for
+    # Ingredients not in our table contribute 0 calories. That's fine for
     # spices and herbs but means a recipe full of unknown ingredients would
     # end up at 0 kcal, which is why we have the fallback below.
     calories = sum(CALORIES_PER_INGREDIENT.get(key, 0) for key in ingredient_keys)
@@ -331,7 +331,7 @@ def save_recipe(recipe_data):
     connection = get_connection()
     cursor = connection.cursor()
     # INSERT OR IGNORE protects against duplicates via the UNIQUE constraint
-    # on api_id — if for any reason a recipe with the same api_id is already
+    # on api_id. If for any reason a recipe with the same api_id is already
     # there, the row is silently skipped instead of raising an IntegrityError.
     cursor.execute("""
         INSERT OR IGNORE INTO recipes (
@@ -387,7 +387,7 @@ def load_from_themealdb(max_recipes=200):
 
         # The whole letter loop is wrapped in try/except so one bad request
         # (timeout, network blip, malformed JSON) doesn't kill the whole
-        # import — we just skip that letter and continue with the next one.
+        # import. We just skip that letter and continue with the next one.
         try:
             # Request all meals whose name starts with this letter.
             # timeout=10 prevents the app startup from hanging forever if
@@ -444,7 +444,7 @@ def load_from_themealdb(max_recipes=200):
                             # recipe detail view.
                             amount_parts.append(f"{key}:{amount.strip()}")
 
-                # Skip recipes that have no recognisable ingredients —
+                # Skip recipes that have no recognisable ingredients.
                 # they would never match a search anyway.
                 if not ingredient_keys:
                     continue
@@ -500,7 +500,7 @@ def load_from_themealdb(max_recipes=200):
                 saved += 1
 
         except Exception as error:
-            # Log and move on — one broken letter shouldn't take down the
+            # Log and move on. One broken letter shouldn't take down the
             # entire import. The user will still get all the recipes from
             # the other 25 letters.
             print(f"Error loading letter {letter}: {error}")
@@ -539,7 +539,7 @@ def load_api_recipes():
         print(f"{new_count} recipes loaded from TheMealDB.")
         return new_count
     else:
-        # Already loaded on a previous run — nothing to do. Returning 0
+        # Already loaded on a previous run, nothing to do. Returning 0
         # signals "no new recipes" to the caller in app.py.
         print(f"Recipes already present: {count} recipes.")
         return 0

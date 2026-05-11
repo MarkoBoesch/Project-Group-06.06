@@ -76,7 +76,7 @@ def build_recipe_vector(recipe, all_ingredient_keys):
     """Returns a 1D numpy array of features for a single recipe."""
 
     # Split the comma-separated ingredient string back into a clean list.
-    # Same logic as in app.py — a recipe stores ingredients as
+    # Same logic as in app.py: a recipe stores ingredients as
     # "potato,onion,garlic" and we want the individual keys.
     recipe_ingredients = [i.strip() for i in recipe["ingredients"].split(",")]
 
@@ -108,7 +108,7 @@ def build_recipe_vector(recipe, all_ingredient_keys):
     difficulty_num = DIFFICULTY_MAP.get(recipe["difficulty"], 2)
 
     # Combine everything into a single numeric vector. The order MUST be
-    # identical for every recipe — that's why we use the master ingredient
+    # identical for every recipe. That's why we use the master ingredient
     # list above.
     features = ingredient_flags + [is_vegetarian, is_vegan,
                                    time_minutes, difficulty_num]
@@ -128,12 +128,12 @@ def collect_all_ingredient_keys(all_recipes):
             key = ingredient.strip()
             if key:
                 seen.add(key)
-    # sorted() makes the order deterministic — important so the same recipe
+    # sorted() makes the order deterministic, important so the same recipe
     # always produces the same feature vector across app restarts.
     return sorted(seen)
 
 
-# SYNTHETIC TRAINING DATA — FOCUSED PERSONA
+# SYNTHETIC TRAINING DATA (FOCUSED PERSONA)
 # The persona is an Italian/Mediterranean-leaning home cook who:
 #   - Loves Italian, Mediterranean and fresh-vegetable ingredients
 #   - Dislikes heavy meats and seafood
@@ -146,9 +146,9 @@ def collect_all_ingredient_keys(all_recipes):
 #   - Disliked stays small but covers the clearly-avoided categories
 #     (heavy meats, seafood) which is enough to push those recipes down.
 #
-# We deliberately picked the most diagnostic ingredients — ones that
+# We deliberately picked the most diagnostic ingredients: ones that
 # appear in many recipes and clearly identify "Italian-leaning vs heavy
-# meat" — so each ingredient flag in the feature vector carries strong
+# meat", so each ingredient flag in the feature vector carries strong
 # learning signal.
 
 LOVED_INGREDIENTS = {
@@ -166,7 +166,7 @@ LOVED_INGREDIENTS = {
 DISLIKED_INGREDIENTS = {
     # Heavy / cured meats (5)
     "bacon", "sausage", "pork", "ham", "ground_beef",
-    # Seafood — persona doesn't enjoy fish/seafood at all (4)
+    # Seafood (persona doesn't enjoy fish/seafood at all) (4)
     "shrimp", "salmon", "tuna", "cod",
     # Heavy / processed condiments (3)
     "mayonnaise", "bbq_sauce", "hot_sauce",
@@ -179,7 +179,7 @@ def generate_synthetic_history(all_recipes, rng_seed=42):
     history rows in db.py:
         {"recipe_id": int, "rating": 1-5, "date": "YYYY-MM-DD"}
 
-    The 'date' is only used for recency weighting — older synthetic
+    The 'date' is only used for recency weighting. Older synthetic
     entries get smaller weights than newer ones during training.
 
     The 60-entry size (12 per star level × 5 levels) gives the Random
@@ -209,7 +209,7 @@ def generate_synthetic_history(all_recipes, rng_seed=42):
 
     # Sort by score (highest first) and convert the score into a star rating.
     # We split the recipe list into 5 buckets so we get a healthy mix of
-    # ratings from 1 to 5 — the model NEEDS to see low ratings too,
+    # ratings from 1 to 5. The model NEEDS to see low ratings too,
     # otherwise it can't learn what "I won't like this" looks like.
     scored.sort(key=lambda x: x[1], reverse=True)
 
@@ -247,7 +247,7 @@ def generate_synthetic_history(all_recipes, rng_seed=42):
 # RECENCY WEIGHTS
 # Builds an array of training-sample weights, one per history entry,
 # where newer entries get bigger weights. The weights are passed to
-# RandomForestRegressor.fit() via the sample_weight argument — sklearn
+# RandomForestRegressor.fit() via the sample_weight argument. sklearn
 # will then count newer samples more heavily when growing each tree.
 #
 # Why this matters: synthetic entries all have date "2024-01-01" so they
@@ -333,7 +333,7 @@ def train_recommender(real_history, all_recipes):
     Returns (model, all_ingredient_keys) so the caller can score recipes.
     """
 
-    # Build the master ingredient list once — used both for training and
+    # Build the master ingredient list once, used both for training and
     # for scoring later.
     all_ingredient_keys = collect_all_ingredient_keys(all_recipes)
 
@@ -343,7 +343,7 @@ def train_recommender(real_history, all_recipes):
     # so the model gradually learns the user's actual taste.
     synthetic_history = generate_synthetic_history(all_recipes)
 
-    # Only keep real history entries that actually have a rating —
+    # Only keep real history entries that actually have a rating.
     # unrated entries can't be used as training labels.
     rated_real_history = [h for h in real_history if h.get("rating")]
 
@@ -391,7 +391,7 @@ def train_recommender(real_history, all_recipes):
 #       occasionally very wrong gets a worse MSE than one that is
 #       consistently a little wrong.
 #
-# Both metrics come from sklearn.metrics — no manual math needed.
+# Both metrics come from sklearn.metrics (no manual math needed).
 
 def evaluate_recommender(real_history, all_recipes, test_size=0.2,
                          random_state=42):
@@ -433,7 +433,7 @@ def evaluate_recommender(real_history, all_recipes, test_size=0.2,
     )
 
     # Fit a FRESH model on only the training portion. Important: this
-    # is a separate model from the production one — we don't want to
+    # is a separate model from the production one. We don't want to
     # contaminate the real predictions with the test data.
     eval_model = RandomForestRegressor(
         n_estimators=100,
@@ -446,7 +446,7 @@ def evaluate_recommender(real_history, all_recipes, test_size=0.2,
     y_pred = eval_model.predict(X_test)
 
     # Compute the two metrics. Both are simple averages over the
-    # test set — sklearn does the math, we just call the function.
+    # test set. sklearn does the math, we just call the function.
     mae = mean_absolute_error(y_test, y_pred)
     mse = mean_squared_error(y_test, y_pred)
 
@@ -459,7 +459,7 @@ def evaluate_recommender(real_history, all_recipes, test_size=0.2,
 # the trained Random Forest, and returns the top N.
 #
 # Filtering of which recipes to score (e.g. "exclude recipes cooked
-# 4+ times") is the caller's job — keeping it out of this function keeps
+# 4+ times") is the caller's job. Keeping it out of this function keeps
 # the ML logic focused and easier to reason about.
 
 def recommend_top_recipes(candidate_recipes, real_history, all_recipes,
@@ -473,7 +473,7 @@ def recommend_top_recipes(candidate_recipes, real_history, all_recipes,
                         recipes cooked too often).
     real_history      : the user's actual cooking history from db.py.
                         Used to TRAIN the model, not to filter candidates.
-    all_recipes       : the full recipe database — needed so the master
+    all_recipes       : the full recipe database. Needed so the master
                         ingredient list is built from ALL recipes, not
                         just the candidates. This keeps the feature
                         vector consistent across calls.
@@ -502,7 +502,7 @@ def recommend_top_recipes(candidate_recipes, real_history, all_recipes,
     scored = list(zip(candidate_recipes, predictions))
     scored.sort(key=lambda pair: pair[1], reverse=True)
 
-    # Cap predictions to the valid 1-5 range — the trees can occasionally
+    # Cap predictions to the valid 1 to 5 range. The trees can occasionally
     # extrapolate slightly outside this range, which would look weird in
     # the UI ("predicted: 5.3 / 5").
     capped = []
