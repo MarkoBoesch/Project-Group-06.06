@@ -9,10 +9,11 @@
 #   (e.g. "chicken breast" -> "chicken_breast") so they match the rest of the app.
 # - Estimates allergens, cooking time, difficulty and nutritional values that
 #   the API does not provide.
-# - Registers every ingredient that appears in API recipes in the ingredients
-#   table so users can actually select them in the search page.
+# - Registers ingredients from API recipes in the ingredients table so
+#   users can select them in the search page (excluding filtered-out
+#   items like water, spices, etc.).
 #
-# This is the ONLY source of recipes in the app. The recipes table is empty
+# This is the only source of recipes in the app. The recipes table is empty
 # until this file fills it on the first run.
 #
 # Used by app.py on:
@@ -23,26 +24,21 @@
 # -----------------------------------------------------------------------------
 
 import requests
-# requests handles the HTTP calls to TheMealDB. It's the standard Python
-# library for talking to web APIs (much simpler than the built-in urllib).
+# requests handles the HTTP calls to TheMealDB.
 
 import sqlite3
-# sqlite3 is built into Python and lets us read/write the local recipe database.
-# We open our own connections here instead of importing from db.py to
-# keep this file self-contained and avoid circular imports.
+# sqlite3 lets us read/write the local recipe database. We open our own
+# connections here to keep this file self-contained and avoid circular imports.
 
 DB_NAME = "emptythefridge.db"
 API_URL = "https://www.themealdb.com/api/json/v1/1/"
 
 
 # HELPER FUNCTIONS
-# Small utility functions used by the bigger functions further down.
-# Kept up here so the main logic below reads cleanly.
 
 def get_connection():
     """Opens a connection to the database."""
     # row_factory = sqlite3.Row lets us access columns by name (row["id"])
-    # instead of by index (row[0]), which makes the code far more readable.
     connection = sqlite3.connect(DB_NAME)
     connection.row_factory = sqlite3.Row
     return connection
@@ -69,11 +65,10 @@ def recipe_exists(api_id):
 # If a name is not in this dictionary, translate_ingredient() uses a
 # simple fallback: replace spaces with underscores.
 #
-# Why this matters: the recommender (recommender.py) compares recipes by
-# their ingredient keys. If two recipes use different keys for the same
-# real-world ingredient (e.g. "chicken breast" vs "chicken_breast"), the
-# similarity score drops and recommendations get worse. Mapping known
-# variants to a single canonical key keeps the ML signal clean.
+# Why this matters: the Random Forest (recommender.py) uses ingredient
+# keys as features, so inconsistent keys for the same ingredient hurt
+# prediction quality. Forcing every variant to the same key makes sure 
+# the model sees them as one ingredient.
 
 INGREDIENT_MAPPING = {
     "chicken": "chicken_breast",
