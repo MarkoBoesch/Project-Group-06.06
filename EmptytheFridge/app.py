@@ -950,7 +950,7 @@ elif page == "📊 Statistics":
         st.pyplot(fig_co2)
 
         # DAILY NUTRITION RADAR CHART (matplotlib)
-        # Sums up the nutritional values of all recipes cooked TODAY and
+        # Sums up the nutritional values of all recipes cooked today and
         # plots them as percentages of the standard daily intake.
         # The outer edge of the radar = 100% of the daily intake.
 
@@ -990,7 +990,7 @@ elif page == "📊 Statistics":
 
             st.write("Cooked today:", ", ".join(today_names))
 
-            # ── DAILY REFERENCE VALUES ────────────────────────────────────
+            # DAILY REFERENCE VALUES
             # Source: Swiss Federal Food Safety and Veterinary Office (BLV)
             #   "Schweizer Referenzwerte für die Nährstoffzufuhr" (2022)
             #   blv.admin.ch, Hauptnährstoffe (Protein, Kohlenhydrate, Fett)
@@ -998,7 +998,7 @@ elif page == "📊 Statistics":
             #   who.int/news-room/fact-sheets/detail/healthy-diet
             #
             # We use the midpoint between the BLV sedentary-adult targets
-            # for men (2 200 kcal, 70 kg reference) and women (1 800 kcal,
+            # for men (2200 kcal, 70 kg reference) and women (1800 kcal,
             # 57 kg reference) to get a gender-neutral reference person.
             #
             #   Nutrient   Man    Woman   Average used here
@@ -1089,5 +1089,3 @@ elif page == "📊 Statistics":
                 st.write(f"🌾 Fiber: {fiber_pct}% ({fiber_today}g)")
                 st.write(f"🍋 Vitamins: {vitamins_pct}%")
                 st.write(f"⚡ Minerals: {minerals_pct}%")
-
-
