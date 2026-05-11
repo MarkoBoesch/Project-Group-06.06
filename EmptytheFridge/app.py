@@ -36,20 +36,12 @@ from api_loader import load_api_recipes
 
 
 # DROPDOWN-HIDDEN INGREDIENTS
-# Ingredients the user should NOT see in the search-page multiselect
-# because they don't really spoil and aren't things people try to "use
-# up" before they go bad: water, baking staples, oils, vinegar, salt,
-# sugar, plus shelf-stable condiments like mayo, hot sauce and
-# Worcestershire. These ingredients still exist everywhere else (the
-# recommender can still use them as features, the recipe details still
-# show them, the cost calculator still treats them sensibly), they're
-# just hidden from this specific UI element.
-#
-# Note: many of these (oil, olive_oil, salt, sugar, flour, baking_powder,
-# vinegar, water) are already in `base_ingredients` from constants.py,
-# which means the cost calculator and ingredient-overlap matcher already
-# treat them as pantry staples. The only behaviour change here is the
-# multiselect dropdown.
+# Second-stage filter on the search-page multiselect. Stage 1 (in
+# api_loader.py) limits the dropdown to canonical keys. Stage 2, below,
+# additionally hides pantry items the user wouldn't think of as "things
+# to use up" (water, oils, salt, sugar, baking staples, shelf-stable
+# condiments). They still work everywhere else in the app, just not in
+# this dropdown.
 
 HIDDEN_FROM_DROPDOWN = {
     "water",
@@ -310,16 +302,17 @@ if page == "🥕 Enter Ingredients":
     st.write("Select the ingredients you want to use up.")
 
     # Load all known ingredients. Each entry has both an internal key
-    # (e.g. "bell_pepper") and a human-readable display name (e.g. "Bell Pepper").
-    # Display names are shown to the user, but matching is done with keys.
+    # (e.g. "bell_pepper"), which is sourced from api_loader.py, and a 
+    # human-readable display name (e.g. "Bell Pepper"). Display names 
+    # are shown to the user, but matching is done with keys.
     all_ingredients = load_all_ingredients()
 
     # Filter out ingredients that don't really spoil (water, salt, sugar,
-    # oil, flour, shelf-stable condiments etc.) so the user only sees
-    # things they might actually want to "use up". The hidden items are
-    # still available everywhere else in the app. The cost calculator,
-    # the ingredient-display helper, and the recommender all still see
-    # them as normal ingredients.
+    # oil, flour, shelf-stable condiments etc.), which we defined above
+    # in HIDDEN_FROM_DROPDOWN, so the user only sees things they might 
+    # actually want to "use up". The hidden items are still available
+    # everywhere else in the app. The cost calculator, the ingredient-display
+    # helper, and the recommender all still see them as normal ingredients.
     visible_ingredients = [
         i for i in all_ingredients
         if i["key"] not in HIDDEN_FROM_DROPDOWN
